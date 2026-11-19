@@ -10,8 +10,8 @@ namespace KantaPdf
         {
             base.OnStartup(e);
 
-            // PDFsharp soll die normalen Windows-Schriften (Arial usw.) nutzen – wichtig für die OCR-Textschicht.
-            PdfSharp.Fonts.GlobalFontSettings.UseWindowsFontsUnderWindows = true;
+            // PDFsharp bekommt die Windows-Schriften (Arial) – wichtig für die OCR-Textschicht.
+            PdfSharp.Fonts.GlobalFontSettings.FontResolver = new Services.WindowsFontResolver();
 
             DispatcherUnhandledException += OnUnhandled;
 

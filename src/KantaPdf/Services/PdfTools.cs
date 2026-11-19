@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
+using PdfSharp.Pdf.Advanced;
 using PdfSharp.Pdf.IO;
 
 namespace KantaPdf.Services
@@ -339,7 +340,6 @@ namespace KantaPdf.Services
             s.PermitPrint = allowPrint;
             s.PermitFullQualityPrint = allowPrint;
             s.PermitExtractContent = allowCopy;
-            s.PermitAccessibilityExtractContent = true;
             s.PermitModifyDocument = allowEdit;
             s.PermitAnnotations = allowEdit;
             s.PermitAssembleDocument = allowEdit;
