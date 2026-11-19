@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Windows-10/11-TFM: gibt Zugriff auf Windows.Data.Pdf (Darstellung) und Windows.Media.Ocr (OCR) -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <RootNamespace>KantaPdf</RootNamespace>
+    <AssemblyName>KANTApdf</AssemblyName>
+    <ApplicationIcon>Assets\kanta.ico</ApplicationIcon>
+    <Product>KANTApdf</Product>
+    <Company>wetzel.digital</Company>
+    <Copyright>Made with ♥ in Ummaschumm</Copyright>
+    <Version>0.1.0</Version>
+
+    <!-- Eine einzelne EXE, ohne dass .NET installiert sein muss -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- MIT-Lizenz: Zusammenfügen, Teilen, Verkleinern, OCR-Textschicht -->
+    <PackageReference Include="PDFsharp" Version="6.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\kanta.ico" />
+    <Resource Include="Assets\kanta.png" />
+  </ItemGroup>
+
+</Project>

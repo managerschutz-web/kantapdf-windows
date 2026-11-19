@@ -1,0 +1,151 @@
+<Window x:Class="KantaPdf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="KANTApdf" Width="1280" Height="880" MinWidth="900" MinHeight="520"
+        Icon="Assets/kanta.ico"
+        Background="{DynamicResource Bg}" Foreground="{DynamicResource Ink}"
+        FontFamily="{StaticResource UiFont}" FontSize="13"
+        WindowStartupLocation="CenterScreen" AllowDrop="True"
+        Drop="Window_Drop" DragOver="Window_DragOver"
+        PreviewMouseWheel="Window_PreviewMouseWheel" PreviewKeyDown="Window_PreviewKeyDown">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- ───────── Kopfleiste ───────── -->
+    <Border Background="{DynamicResource Bar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,7">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Margin="4,0,14,0" VerticalAlignment="Center" FontSize="15">
+            <Run Text="KANTA" FontWeight="Bold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" Foreground="{DynamicResource Muted}"/>
+          </TextBlock>
+          <Button Content="Öffnen" Click="Open_Click" ToolTip="PDF öffnen (Strg+O)"/>
+          <TextBlock x:Name="FileName" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"
+                     Margin="10,0" TextTrimming="CharacterEllipsis" MaxWidth="300"/>
+        </StackPanel>
+
+        <TextBlock x:Name="PageInfo" Grid.Column="1" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+          <Button x:Name="BtnOcr" Style="{StaticResource Tool}" Content="OCR" Click="Ocr_Click" ToolTip="Gescannte PDF durchsuchbar machen"/>
+          <Button Style="{StaticResource Tool}" Content="Zusammenfügen" Click="Merge_Click" ToolTip="Mehrere PDFs zu einer verbinden"/>
+          <Button x:Name="BtnSplit" Style="{StaticResource Tool}" Content="Teilen" Click="Split_Click" ToolTip="PDF in mehrere Dateien aufteilen"/>
+          <Button x:Name="BtnCompress" Style="{StaticResource Tool}" Content="Verkleinern" Click="Compress_Click" ToolTip="Dateigröße reduzieren"/>
+          <Button x:Name="BtnRedact" Style="{StaticResource Tool}" Content="Schwärzen" Click="Redact_Click" ToolTip="Bereiche endgültig unkenntlich machen"/>
+          <Button x:Name="BtnProtect" Style="{StaticResource Tool}" Content="Kennwort" Click="Protect_Click" ToolTip="Kennwortschutz setzen oder entfernen"/>
+          <Border Width="1" Background="{DynamicResource Line}" Margin="8,4"/>
+          <Button Content="−" Click="ZoomOut_Click" Padding="11,6" ToolTip="Verkleinern (Strg+Minus)"/>
+          <Button x:Name="ZoomText" Content="100 %" Click="Fit_Click" MinWidth="60" ToolTip="Auf Breite einpassen (Strg+0)"/>
+          <Button Content="+" Click="ZoomIn_Click" Padding="11,6" ToolTip="Vergrößern (Strg+Plus)"/>
+          <Border Width="1" Background="{DynamicResource Line}" Margin="8,4"/>
+          <Button x:Name="BtnMode" Content="Papier" Click="Mode_Click" MinWidth="70" ToolTip="Ansicht: Papier · Sepia · Nacht"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ───────── Schwärzen-Leiste ───────── -->
+    <Border x:Name="RedactBar" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource AccentSoft}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,7">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button Content="Alle entfernen" Click="RedactClear_Click"/>
+          <Button Content="Beenden" Click="RedactExit_Click"/>
+          <Button x:Name="BtnRedactApply" Style="{StaticResource Primary}" Content="Schwärzen &amp; speichern" Click="RedactApply_Click" Margin="6,0,0,0"/>
+        </StackPanel>
+        <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
+          <Run Text="Schwärzen:" FontWeight="SemiBold"/>
+          <Run Text="Bereiche mit der Maus aufziehen. Klick auf einen Balken entfernt ihn."/>
+          <Run x:Name="RedactCount" Foreground="{DynamicResource Muted}"/>
+        </TextBlock>
+      </DockPanel>
+    </Border>
+
+    <!-- ───────── Seiten ───────── -->
+    <ItemsControl x:Name="PageList" Grid.Row="2" Focusable="False"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling"
+                  VirtualizingPanel.ScrollUnit="Pixel"
+                  ScrollViewer.CanContentScroll="True">
+      <ItemsControl.Template>
+        <ControlTemplate TargetType="ItemsControl">
+          <ScrollViewer x:Name="PART_Scroll" CanContentScroll="True" Focusable="True"
+                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <ItemsPresenter Margin="0,8,0,24"/>
+          </ScrollViewer>
+        </ControlTemplate>
+      </ItemsControl.Template>
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <VirtualizingStackPanel/>
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <Border Width="{Binding Width}" Height="{Binding Height}" Margin="0,8" HorizontalAlignment="Center"
+                  Background="{DynamicResource PagePlaceholder}">
+            <Grid Background="Transparent"
+                  MouseLeftButtonDown="Page_MouseDown" MouseMove="Page_MouseMove" MouseLeftButtonUp="Page_MouseUp">
+              <Image Source="{Binding Image}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+              <ItemsControl ItemsSource="{Binding Redactions}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemContainerStyle>
+                  <Style TargetType="ContentPresenter">
+                    <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                    <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                  </Style>
+                </ItemsControl.ItemContainerStyle>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="Black" Opacity="0.85"
+                               Stroke="{DynamicResource Danger}" StrokeThickness="1" Cursor="Hand"
+                               ToolTip="Klicken zum Entfernen" MouseLeftButtonDown="Redaction_MouseDown"/>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <!-- ───────── Startbildschirm ───────── -->
+    <StackPanel x:Name="EmptyState" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <Image Source="Assets/kanta.png" Width="84" Height="84" HorizontalAlignment="Center" Margin="0,0,0,14"/>
+      <TextBlock HorizontalAlignment="Center" FontSize="40" FontWeight="Light">
+        <Run Text="KANTA" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" Foreground="{DynamicResource Muted}"/>
+      </TextBlock>
+      <TextBlock Text="Ruhig lesen. Schnell erledigen." Foreground="{DynamicResource Muted}" FontSize="15"
+                 HorizontalAlignment="Center" Margin="0,4,0,26"/>
+      <Button Style="{StaticResource Primary}" Content="PDF öffnen" Click="Open_Click" HorizontalAlignment="Center" Padding="22,9" FontSize="14"/>
+      <TextBlock Text="oder Datei hierher ziehen" Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+      <Button Content="Mehrere PDFs zusammenfügen …" Click="Merge_Click" HorizontalAlignment="Center" Margin="0,22,0,0"
+              Foreground="{DynamicResource Accent}"/>
+      <TextBlock Text="Made with ♥ in Ummaschumm" Style="{StaticResource Hint}" FontSize="11" HorizontalAlignment="Center" Margin="0,48,0,0"/>
+    </StackPanel>
+
+    <!-- ───────── Meldung unten ───────── -->
+    <Border x:Name="Toast" Grid.Row="3" Visibility="Collapsed" Background="{DynamicResource Bar}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,8">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="ToastOpen" Style="{StaticResource Primary}" Content="Öffnen" Click="ToastOpen_Click"/>
+          <Button Content="Im Ordner zeigen" Click="ToastFolder_Click"/>
+          <Button Content="✕" Click="ToastClose_Click" Padding="10,6"/>
+        </StackPanel>
+        <TextBlock x:Name="ToastText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+      </DockPanel>
+    </Border>
+  </Grid>
+</Window>

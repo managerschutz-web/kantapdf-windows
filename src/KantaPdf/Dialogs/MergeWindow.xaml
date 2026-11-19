@@ -1,0 +1,42 @@
+<Window x:Class="KantaPdf.Dialogs.MergeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Zusammenfügen" Width="560" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner" Icon="/Assets/kanta.ico"
+        Background="{DynamicResource Bar}" Foreground="{DynamicResource Ink}"
+        FontFamily="{StaticResource UiFont}" FontSize="13">
+  <StackPanel Margin="24,22,24,20">
+    <TextBlock Text="PDFs zusammenfügen" Style="{StaticResource DialogTitle}"/>
+    <TextBlock Text="Reihenfolge festlegen – die Dateien werden von oben nach unten verbunden. Dateien lassen sich auch hier hineinziehen."
+               Style="{StaticResource Hint}" FontSize="13" Margin="0,4,0,14"/>
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <ListBox x:Name="FileList" Height="230" AllowDrop="True" Drop="List_Drop" DragOver="List_DragOver"
+               Background="{DynamicResource Field}" Foreground="{DynamicResource Ink}" BorderBrush="{DynamicResource Line}"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <StackPanel Margin="2,4">
+              <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+              <TextBlock Text="{Binding Folder}" Style="{StaticResource Hint}" FontSize="11" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <StackPanel Grid.Column="1" Margin="10,0,0,0">
+        <Button Content="Hinzufügen …" Click="Add_Click" Margin="0,0,0,6" HorizontalContentAlignment="Left"/>
+        <Button Content="▲  Nach oben" Click="Up_Click" Margin="0,0,0,6"/>
+        <Button Content="▼  Nach unten" Click="Down_Click" Margin="0,0,0,6"/>
+        <Button Content="Entfernen" Click="Remove_Click" Foreground="{DynamicResource Danger}"/>
+      </StackPanel>
+    </Grid>
+    <TextBlock x:Name="Status" Style="{StaticResource Hint}" FontSize="13" Margin="0,14,0,0"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+      <Button x:Name="BtnCancel" Content="Abbrechen" Click="Cancel_Click"/>
+      <Button x:Name="BtnRun" Style="{StaticResource Primary}" Content="Zusammenfügen" Click="Run_Click" Margin="8,0,0,0" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
