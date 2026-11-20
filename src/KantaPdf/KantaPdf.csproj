@@ -17,7 +17,7 @@
     <Product>KANTApdf</Product>
     <Company>wetzel.digital</Company>
     <Copyright>Made with ♥ in Ummaschumm</Copyright>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
 
     <!-- Eine einzelne EXE, ohne dass .NET installiert sein muss -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

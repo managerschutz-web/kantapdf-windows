@@ -56,6 +56,18 @@ namespace KantaPdf
         private DateTime _popupClosedAt;
         private bool _noTextHintShown;
 
+        // Unterschrift/Stempel platzieren
+        private byte[] _pendingPng;
+        private string _pendingKind;
+        private Tool _toolBeforePlace;
+
+        // Seiten umsortieren
+        private Point _thumbDownPos;
+        private PageItem _thumbDownItem;
+
+        // Vorschlag für „Speichern unter“, wenn das Dokument (noch) keinen Pfad hat
+        private string _suggestName, _suggestDir;
+
         // Meldung
         private Action _toastAction;
         private string _toastPath;
@@ -84,11 +96,17 @@ namespace KantaPdf
             {
                 PageList.ApplyTemplate();
                 _scroll = PageList.Template.FindName("PART_Scroll", PageList) as ScrollViewer;
-                if (_scroll != null) _scroll.ScrollChanged += (s2, e2) => Kick();
+                if (_scroll != null) _scroll.ScrollChanged += (s2, e2) =>
+                {
+                    if (NotePopup.IsOpen && Math.Abs(e2.VerticalChange) + Math.Abs(e2.HorizontalChange) > 0.5) CloseNotePopup();
+                    Kick();
+                };
                 _thumbScroll = FindChild<ScrollViewer>(ThumbList);
                 if (_thumbScroll != null) _thumbScroll.ScrollChanged += (s2, e2) => Kick();
             };
-            SizeChanged += (s, e) => Kick();
+            SizeChanged += (s, e) => { CloseNotePopup(); Kick(); };
+            Deactivated += (s, e) => CloseNotePopup();
+            LocationChanged += (s, e) => CloseNotePopup();
             Sidebar.SizeChanged += (s, e) => { ApplyThumbWidths(); Kick(); };
 
             UpdateUi();
@@ -127,21 +145,42 @@ namespace KantaPdf
         /// <summary>
         /// insertAt = -1: neues Dokument. Sonst: Seiten an dieser Stelle einfügen (Zusammenfügen).
         /// </summary>
-        private async Task OpenFilesAsync(IList<string> paths, int insertAt)
+        public async Task OpenFilesAsync(IList<string> paths, int insertAt)
         {
-            var pdfs = paths.Where(p => p.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) && File.Exists(p)).ToList();
-            if (pdfs.Count == 0) return;
+            var files = paths.Where(p => File.Exists(p) && Converter.IsSupported(p)).ToList();
+            var skipped = paths.Count(p => File.Exists(p) && !Converter.IsSupported(p));
+            if (files.Count == 0)
+            {
+                if (skipped > 0) ShowToast("Dieser Dateityp wird nicht unterstützt.", null, null);
+                return;
+            }
 
             bool newDoc = insertAt < 0 || _pages.Count == 0;
             if (newDoc && !ConfirmDiscard()) return;
 
             var sources = new List<Source>();
-            foreach (var p in pdfs)
+            bool converted = false;
+            foreach (var p in files)
             {
-                var src = await OpenSourceAsync(p);
+                string pdf = p;
+                if (!Converter.IsPdf(p))
+                {
+                    ShowToast($"Wandle „{Path.GetFileName(p)}“ in PDF um …", null, null);
+                    Cursor = Cursors.Wait;
+                    try { pdf = await Converter.ToPdfAsync(p); converted = true; }
+                    catch (Exception ex)
+                    {
+                        Cursor = null;
+                        ShowError($"„{Path.GetFileName(p)}“ konnte nicht in PDF umgewandelt werden.", ex);
+                        continue;
+                    }
+                    Cursor = null;
+                }
+                var src = await OpenSourceAsync(pdf);
                 if (src != null) sources.Add(src);
             }
             if (sources.Count == 0) return;
+            Toast.Visibility = Visibility.Collapsed;
 
             var newPages = sources.SelectMany(s => Enumerable.Range(0, s.View.PageCount).Select(i => new PageItem(s, i))).ToList();
 
@@ -153,14 +192,24 @@ namespace KantaPdf
                 _pages.Clear();
                 foreach (var pg in newPages) _pages.Add(pg);
 
-                if (sources.Count == 1)
+                _suggestName = Path.GetFileNameWithoutExtension(files[0]);
+                _suggestDir = Path.GetDirectoryName(files[0]);
+                if (sources.Count == 1 && !converted)
                 {
                     _savePath = sources[0].Path;
                     SetDirty(false);
                 }
+                else if (sources.Count == 1)
+                {
+                    _savePath = null;
+                    SetDirty(true);
+                    ShowToast($"„{Path.GetFileName(files[0])}“ wurde in PDF umgewandelt – jetzt speichern.",
+                        "Speichern unter …", () => SaveAs_Click(null, null));
+                }
                 else
                 {
                     _savePath = null;
+                    _suggestName = "Zusammengefügt";
                     SetDirty(true);
                     ShowToast($"{sources.Count} Dateien zusammengefügt ({newPages.Count} Seiten) – jetzt nur noch speichern.",
                         "Speichern unter …", () => SaveAs_Click(null, null));
@@ -214,8 +263,8 @@ namespace KantaPdf
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Filter = "PDF-Dateien|*.pdf",
-                Title = "PDF öffnen (mehrere = zusammenfügen)",
+                Filter = Converter.OpenFilter,
+                Title = "Öffnen – PDF, Word, Excel, PowerPoint, Bilder (mehrere = zusammenfügen)",
                 Multiselect = true
             };
             if (dlg.ShowDialog(this) == true) _ = OpenFilesAsync(dlg.FileNames, -1);
@@ -223,18 +272,22 @@ namespace KantaPdf
 
         private void AppendDialog(int at)
         {
-            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "PDF-Dateien|*.pdf", Title = "PDFs anhängen", Multiselect = true };
+            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = Converter.OpenFilter, Title = "Dateien anhängen", Multiselect = true };
             if (dlg.ShowDialog(this) == true) _ = OpenFilesAsync(dlg.FileNames, at);
         }
 
         private static List<string> DroppedPdfs(DragEventArgs e) =>
             e.Data.GetData(DataFormats.FileDrop) is string[] files
-                ? files.Where(f => f.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)).ToList()
+                ? files.Where(Converter.IsSupported).ToList()
                 : new List<string>();
+
+        private const string PageDragFormat = "KantaPages";
 
         private void Window_DragOver(object sender, DragEventArgs e)
         {
-            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy
+                      : e.Data.GetDataPresent(PageDragFormat) && sender == ThumbList ? DragDropEffects.Move
+                      : DragDropEffects.None;
             e.Handled = true;
         }
 
@@ -261,8 +314,6 @@ namespace KantaPdf
 
         private void Thumb_Drop(object sender, DragEventArgs e)
         {
-            var pdfs = DroppedPdfs(e);
-            if (pdfs.Count == 0) return;
             int at = _pages.Count;
             var lbi = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
             if (lbi?.DataContext is PageItem target)
@@ -271,8 +322,66 @@ namespace KantaPdf
                 var pos = e.GetPosition(lbi);
                 at = _pages.IndexOf(target) + (pos.Y < lbi.ActualHeight / 2 ? 0 : 1);
             }
+
+            if (e.Data.GetData(PageDragFormat) is List<PageItem> moving)
+            {
+                MovePages(moving, at);
+                e.Handled = true;
+                return;
+            }
+
+            var pdfs = DroppedPdfs(e);
+            if (pdfs.Count == 0) return;
             _ = OpenFilesAsync(pdfs, _pages.Count == 0 ? -1 : at);
             e.Handled = true;
+        }
+
+        private void MovePages(List<PageItem> moving, int at)
+        {
+            moving = moving.Where(_pages.Contains).OrderBy(_pages.IndexOf).ToList();
+            if (moving.Count == 0) return;
+            int before = moving.Count(m => _pages.IndexOf(m) < at);
+            var order = _pages.ToList();
+            order.RemoveAll(moving.Contains);
+            int target = Math.Max(0, Math.Min(order.Count, at - before));
+            order.InsertRange(target, moving);
+            if (order.SequenceEqual(_pages)) return;
+
+            PushUndo();
+            _syncingThumbs = true;
+            _pages.Clear();
+            foreach (var p in order) _pages.Add(p);
+            ThumbList.SelectedItems.Clear();
+            foreach (var m in moving) ThumbList.SelectedItems.Add(m);
+            _syncingThumbs = false;
+            SetDirty(true);
+            AfterStructureChange();
+            ShowToast(moving.Count == 1 ? $"Seite verschoben (jetzt Seite {moving[0].Number})." : $"{moving.Count} Seiten verschoben.", "Rückgängig", Undo);
+        }
+
+        private void Thumb_PreviewDown(object sender, MouseButtonEventArgs e)
+        {
+            _thumbDownItem = null;
+            if (FindAncestor<Button>(e.OriginalSource as DependencyObject) != null) return;
+            var lbi = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+            if (lbi?.DataContext is PageItem p)
+            {
+                _thumbDownItem = p;
+                _thumbDownPos = e.GetPosition(ThumbList);
+            }
+        }
+
+        private void Thumb_PreviewMove(object sender, MouseEventArgs e)
+        {
+            if (_thumbDownItem == null || e.LeftButton != MouseButtonState.Pressed) return;
+            var pos = e.GetPosition(ThumbList);
+            if (Math.Abs(pos.Y - _thumbDownPos.Y) < 10 && Math.Abs(pos.X - _thumbDownPos.X) < 10) return;
+
+            var sel = ThumbList.SelectedItems.Cast<PageItem>().ToList();
+            var moving = sel.Contains(_thumbDownItem) && sel.Count > 1 ? sel : new List<PageItem> { _thumbDownItem };
+            _thumbDownItem = null;
+            var data = new DataObject(PageDragFormat, moving);
+            DragDrop.DoDragDrop(ThumbList, data, DragDropEffects.Move);
         }
 
         private void UpdateUi()
@@ -625,8 +734,22 @@ namespace KantaPdf
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
+            if (e.Key == Key.Escape && _pendingPng != null)
+            {
+                EndPlacement();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Delete && !inText && !ThumbList.IsKeyboardFocusWithin && SelectedPlaced() is PlacedItem sp)
+            {
+                sp.Page.Placed.Remove(sp);
+                SetDirty(true);
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.Escape && !inText)
             {
+                DeselectPlaced();
                 ClearSelection();
                 if (_tool != Tool.Text) SelectTool(Tool.Text);
                 e.Handled = true;
@@ -682,6 +805,8 @@ namespace KantaPdf
         private void ApplyTool(Tool t)
         {
             _tool = t;
+            _pendingPng = null;
+            _pendingKind = null;
             ClearSelection();
             PageList.Cursor = t == Tool.Text || t == Tool.Marker ? Cursors.IBeam : Cursors.Cross;
             RedactActions.Visibility = t == Tool.Redact ? Visibility.Visible : Visibility.Collapsed;
@@ -710,6 +835,23 @@ namespace KantaPdf
             var p = e.GetPosition(grid);
             var np = Norm(grid, p);
 
+            // Ein offener Notiz-Editor wird mit dem Klick nur geschlossen
+            if (NotePopup.IsOpen)
+            {
+                CloseNotePopup();
+                e.Handled = true;
+                return;
+            }
+
+            DeselectPlaced();
+
+            if (_pendingPng != null)
+            {
+                PlacePending(page, np);
+                e.Handled = true;
+                return;
+            }
+
             switch (_tool)
             {
                 case Tool.Text:
@@ -723,7 +865,7 @@ namespace KantaPdf
                     break;
 
                 case Tool.Note:
-                    if ((DateTime.Now - _popupClosedAt).TotalMilliseconds < 250) return; // Klick hat nur den Editor geschlossen
+                    if ((DateTime.Now - _popupClosedAt).TotalMilliseconds < 300) return; // Klick hat nur den Editor geschlossen
                     var note = new NoteItem(page, np.X, np.Y);
                     page.Notes.Add(note);
                     RefreshNotes();
@@ -971,6 +1113,111 @@ namespace KantaPdf
             CloseNotePopup();
         }
 
+        private void NoteDone_Click(object sender, RoutedEventArgs e) => CloseNotePopup();
+
+        private void NoteText_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape || (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) != 0))
+            {
+                CloseNotePopup();
+                e.Handled = true;
+            }
+        }
+
+        // ───────── Unterschrift & Stempel ─────────
+
+        private void Sign_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pages.Count == 0) return;
+            var dlg = new SignatureWindow { Owner = this };
+            if (dlg.ShowDialog() == true && dlg.ResultPng != null) BeginPlacement(dlg.ResultPng, "Unterschrift");
+        }
+
+        private void Stamp_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pages.Count == 0) return;
+            var dlg = new StampWindow { Owner = this };
+            if (dlg.ShowDialog() == true && dlg.ResultPng != null) BeginPlacement(dlg.ResultPng, "Stempel");
+        }
+
+        private void BeginPlacement(byte[] png, string kind)
+        {
+            _toolBeforePlace = _tool;
+            ClearSelection();
+            _pendingPng = png;
+            _pendingKind = kind;
+            PageList.Cursor = Cursors.Cross;
+            RedactActions.Visibility = Visibility.Collapsed;
+            ModeTitle.Text = kind + ":";
+            ModeHint.Text = "Auf die Stelle klicken, an der sie stehen soll. Danach verschieben oder an der grünen Ecke größer ziehen. Esc bricht ab.";
+            ModeCount.Text = "";
+            ModeBar.Visibility = Visibility.Visible;
+        }
+
+        private void EndPlacement()
+        {
+            _pendingPng = null;
+            _pendingKind = null;
+            ApplyTool(_toolBeforePlace);
+        }
+
+        private void PlacePending(PageItem page, Point np)
+        {
+            if (page.SourceRotation != 0)
+            {
+                ShowToast("Diese Seite ist im PDF gedreht – dort kann noch nicht unterschrieben/gestempelt werden.", null, null);
+                return;
+            }
+            double nw = _pendingKind == "Unterschrift" ? 0.28 : 0.24;
+            var item = new PlacedItem(page, _pendingPng, _pendingKind, 0, 0, nw);
+            item.NX = np.X - nw / 2;
+            item.NY = np.Y - item.NH / 2;
+            item.Move(0, 0);
+            item.IsSelected = true;
+            page.Placed.Add(item);
+            SetDirty(true);
+            EndPlacement();
+        }
+
+        private void DeselectPlaced()
+        {
+            foreach (var p in _pages)
+                foreach (var it in p.Placed)
+                    if (it.IsSelected) it.IsSelected = false;
+        }
+
+        private PlacedItem SelectedPlaced() =>
+            _pages.SelectMany(p => p.Placed).FirstOrDefault(i => i.IsSelected);
+
+        private void Placed_DragStarted(object sender, DragStartedEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item)) return;
+            if (NotePopup.IsOpen) CloseNotePopup();
+            if (!item.IsSelected) { DeselectPlaced(); item.IsSelected = true; }
+        }
+
+        private void Placed_Move(object sender, DragDeltaEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item) || item.Page.Width <= 0) return;
+            item.Move(e.HorizontalChange / item.Page.Width, e.VerticalChange / item.Page.Height);
+        }
+
+        private void Placed_Resize(object sender, DragDeltaEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item) || item.Page.Width <= 0) return;
+            item.Resize((item.W + e.HorizontalChange) / item.Page.Width);
+        }
+
+        private void Placed_DragCompleted(object sender, DragCompletedEventArgs e) => SetDirty(true);
+
+        private void Placed_Delete(object sender, RoutedEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item)) return;
+            item.Page.Placed.Remove(item);
+            SetDirty(true);
+            e.Handled = true;
+        }
+
         // ───────── Schwärzen ─────────
 
         private int RedactionTotal => _pages.Sum(p => p.Redactions.Count);
@@ -1026,8 +1273,8 @@ namespace KantaPdf
 
         private async Task<bool> SaveAsFlowAsync(string suffix)
         {
-            string baseName = _savePath != null ? Path.GetFileNameWithoutExtension(_savePath) : "Zusammengefügt";
-            string dir = _savePath != null ? Path.GetDirectoryName(_savePath) : Path.GetDirectoryName(_pages[0].Source.Path);
+            string baseName = _savePath != null ? Path.GetFileNameWithoutExtension(_savePath) : (_suggestName ?? "Dokument");
+            string dir = _savePath != null ? Path.GetDirectoryName(_savePath) : (_suggestDir ?? Path.GetDirectoryName(_pages[0].Source.Path));
             var dlg = new Microsoft.Win32.SaveFileDialog
             {
                 Filter = "PDF-Dateien|*.pdf",
@@ -1165,6 +1412,8 @@ namespace KantaPdf
         }
 
         // ═════════════════════════ Meldungen ═════════════════════════
+
+        public void Notify(string text) => ShowToast(text, null, null);
 
         private void ShowToast(string text, string actionLabel, Action action, string path = null)
         {

@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Win32;
@@ -48,7 +50,8 @@ namespace KantaPdf.Services
                 "KANTApdf auf diesem PC einrichten?\n\n" +
                 "•  Verknüpfung auf dem Desktop\n" +
                 "•  Eintrag im Startmenü\n" +
-                "•  bei PDFs unter „Öffnen mit“ auswählbar\n\n" +
+                "•  bei PDFs unter „Öffnen mit“ auswählbar\n" +
+                "•  Rechtsklick-Menü: öffnen, in PDF umwandeln, zusammenfügen\n\n" +
                 "Dafür wird die App in deinen Benutzerordner kopiert – nur für dich, ohne Admin-Rechte.",
                 "KANTApdf einrichten", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (r != MessageBoxResult.Yes) return;
@@ -85,7 +88,78 @@ namespace KantaPdf.Services
             Directory.CreateDirectory(Path.GetDirectoryName(StartMenuLink));
             CreateShortcut(StartMenuLink, target);
             RegisterOpenWith(target);
+            RegisterContextMenu(target);
             return target;
+        }
+
+        /// <summary>
+        /// Bei jedem Start: Ist KANTApdf eingerichtet, Registrierung auffrischen und – falls diese EXE
+        /// neuer ist als die eingerichtete – die eingerichtete Version still aktualisieren.
+        /// Gibt eine Meldung zurück, wenn aktualisiert wurde.
+        /// </summary>
+        public static string MaintainInstallation()
+        {
+            try
+            {
+                if (!File.Exists(InstalledExe)) return null;
+                string msg = null;
+                var current = Environment.ProcessPath;
+                if (!IsSamePath(current, InstalledExe))
+                {
+                    var vNew = VersionOf(current);
+                    var vOld = VersionOf(InstalledExe);
+                    if (vNew > vOld)
+                    {
+                        try
+                        {
+                            File.Copy(current, InstalledExe, true);
+                            msg = $"Eingerichtete Version auf {vNew.Major}.{vNew.Minor}.{vNew.Build} aktualisiert – Desktop-Verknüpfung startet ab jetzt die neue Version.";
+                        }
+                        catch
+                        {
+                            msg = "Neue Version erkannt, aber die eingerichtete KANTApdf läuft noch. Bitte alle KANTApdf-Fenster schließen und diese EXE erneut starten.";
+                        }
+                    }
+                }
+                RegisterOpenWith(InstalledExe);
+                RegisterContextMenu(InstalledExe);
+                return msg;
+            }
+            catch { return null; }
+        }
+
+        private static Version VersionOf(string exe)
+        {
+            try
+            {
+                var v = FileVersionInfo.GetVersionInfo(exe);
+                return new Version(v.FileMajorPart, v.FileMinorPart, v.FileBuildPart, v.FilePrivatePart);
+            }
+            catch { return new Version(0, 0); }
+        }
+
+        /// <summary>Einträge im Explorer-Rechtsklickmenü (unter Windows 11: „Weitere Optionen anzeigen“).</summary>
+        private static void RegisterContextMenu(string exe)
+        {
+            var convertible = Converter.ConvertibleExt.ToArray();
+            void Verb(string ext, string key, string label, string args, bool multi)
+            {
+                using var k = Registry.CurrentUser.CreateSubKey($@"Software\Classes\SystemFileAssociations\{ext}\shell\{key}");
+                k.SetValue("MUIVerb", label);
+                k.SetValue("Icon", $"\"{exe}\",0");
+                if (multi) k.SetValue("MultiSelectModel", "Player");
+                using var c = k.CreateSubKey("command");
+                c.SetValue("", $"\"{exe}\" {args}");
+            }
+
+            Verb(".pdf", "KANTApdf.Open", "Mit KANTApdf öffnen", "\"%1\"", false);
+            Verb(".pdf", "KANTApdf.Merge", "Mit KANTApdf zusammenfügen", "--merge \"%1\"", true);
+            foreach (var ext in convertible)
+            {
+                Verb(ext, "KANTApdf.Convert", "Mit KANTApdf in PDF umwandeln", "\"%1\"", false);
+                Verb(ext, "KANTApdf.Merge", "Mit KANTApdf zusammenfügen", "--merge \"%1\"", true);
+            }
+            SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);
         }
 
         private static void CreateShortcut(string linkPath, string exe)

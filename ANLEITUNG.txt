@@ -1,9 +1,13 @@
-KANTApdf für Windows – v0.2.0
+KANTApdf für Windows – v0.3.0
 =============================
 Made with ♥ in Ummaschumm
 
 DOWNLOAD (immer die neueste Version, ohne Anmeldung)
 https://github.com/managerschutz-web/kantapdf-windows/releases/latest/download/KANTApdf.exe
+
+UPDATE
+- Neue EXE einfach starten: die eingerichtete Version wird automatisch ersetzt
+  (vorher alle KANTApdf-Fenster schließen)
 
 ERSTER START
 - SmartScreen warnt („Unbekannter Herausgeber“) → „Weitere Informationen“ → „Trotzdem ausführen“.
@@ -23,6 +27,27 @@ SEITEN
 - Seite löschen: Papierkorb auf der Vorschau oder Entf (mehrere mit Strg/Umschalt auswählen)
 - Rückgängig: Strg+Z
 
+OFFICE & BILDER → PDF
+- Word, Excel, PowerPoint (braucht installiertes Microsoft Office) sowie JPG, PNG, TIFF, BMP, GIF
+  einfach öffnen oder ins Fenster ziehen → wird automatisch zur PDF, danach speichern
+- Gemischt geht auch: Word + Foto + PDF zusammen ins Fenster ziehen = ein PDF
+
+RECHTSKLICK IM EXPLORER (nach „Einrichten“)
+- PDF: „Mit KANTApdf öffnen“, „Mit KANTApdf zusammenfügen“ (mehrere Dateien markieren)
+- Office/Bilder: „Mit KANTApdf in PDF umwandeln“, „Mit KANTApdf zusammenfügen“
+- Windows 11: zu finden unter „Weitere Optionen anzeigen“ (Umschalt+F10)
+
+UNTERSCHREIBEN & STEMPEL (Knöpfe oben in der Mitte)
+- Unterschreiben: mit Maus/Stift/Finger zeichnen oder eingescannte Unterschrift laden
+  (weißer Hintergrund wird entfernt), wird für später gespeichert
+- Stempel: ERLEDIGT, EINGANG, GEPRÜFT, KOPIE … mit heutigem Datum; eigene Text-Stempel
+  (Farbe, Zusatzzeile, Datum) und Bild-Stempel (z. B. Logo)
+- Danach auf die Stelle klicken, verschieben, an der grünen Ecke größer ziehen, Entf löscht
+- Beim Speichern fest ins PDF eingezeichnet (sichtbare Unterschrift, keine digitale Signatur)
+
+SEITEN UMSORTIEREN
+- Vorschaubilder in der Leiste einfach an die neue Stelle ziehen (auch mehrere)
+
 ZUSAMMENFÜGEN – so einfach wie möglich
 - Mehrere PDFs auf einmal öffnen oder ins leere Fenster ziehen → ein Dokument
 - PDF ins offene Dokument ziehen → wird hinten angehängt
@@ -33,7 +58,7 @@ ZUSAMMENFÜGEN – so einfach wie möglich
 TEXT, MARKER, NOTIZEN (Schalter oben in der Mitte)
 - Text: mit der Maus überstreichen → Strg+C kopiert; Doppelklick = Wort; Strg+A = ganze Seite; Rechtsklick = Menü
 - Marker: Text überstreichen → gelb hervorgehoben; Rechtsklick auf Markierung → entfernen
-- Notiz: auf eine Stelle klicken und tippen; leere Notiz verschwindet; Papierkorb im Notizfenster löscht
+- Notiz: auf eine Stelle klicken und tippen, „Fertig“ oder Strg+Enter; leere Notiz verschwindet
 - Schwärzen: Balken aufziehen → „Schwärzen & speichern unter“; betroffene Seiten werden als Bild neu
   aufgebaut, darunter ist garantiert nichts mehr lesbar
 - Marker und Notizen werden als echte PDF-Kommentare gespeichert (auch in Acrobat/Edge sichtbar)
@@ -49,7 +74,7 @@ WERKZEUGE (Menü rechts oben)
 BEKANNTE GRENZEN (v0.2)
 - Bereits vorhandene Kommentare in fremden PDFs werden angezeigt, sind aber (noch) nicht bearbeitbar
 - Formularfelder können beim Zusammenfügen/Speichern verloren gehen
-- OCR überspringt im PDF gedrehte Seiten
+- OCR, Unterschrift und Stempel: noch nicht auf Seiten, die im PDF gedreht sind
 - Kennwortschutz entfernen: Lesezeichen gehen verloren
 
 TECHNIK

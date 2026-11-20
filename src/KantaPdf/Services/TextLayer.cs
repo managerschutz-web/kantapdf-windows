@@ -15,11 +15,17 @@ namespace KantaPdf.Services
     public static class TextLayer
     {
         public static Task<List<WordBox>> LoadAsync(PageItem page) =>
-            Task.Run(() => Load(page.Source, page.SourceIndex));
+            Task.Run(() =>
+            {
+                var (words, rot) = Load(page.Source, page.SourceIndex);
+                page.SourceRotation = rot;
+                return words;
+            });
 
-        private static List<WordBox> Load(Source src, int index)
+        private static (List<WordBox>, int) Load(Source src, int index)
         {
             var list = new List<WordBox>();
+            int rot;
             lock (src.PigLock)
             {
                 if (src.Pig == null)
@@ -32,8 +38,8 @@ namespace KantaPdf.Services
                 var page = src.Pig.GetPage(index + 1);
                 var box = page.CropBox.Bounds;
                 double bw = box.Width, bh = box.Height;
-                if (bw <= 0 || bh <= 0) return list;
-                int rot = ((page.Rotation.Value % 360) + 360) % 360;
+                rot = ((page.Rotation.Value % 360) + 360) % 360;
+                if (bw <= 0 || bh <= 0) return (list, rot);
 
                 foreach (var w in page.GetWords())
                 {
@@ -53,7 +59,7 @@ namespace KantaPdf.Services
                     });
                 }
             }
-            return list;
+            return (list, rot);
         }
 
         /// <summary>Ungedreht (u,v) → angezeigt (x,y); Drehung im Uhrzeigersinn wie /Rotate.</summary>

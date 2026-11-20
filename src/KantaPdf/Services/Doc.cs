@@ -127,6 +127,64 @@ namespace KantaPdf.Services
         }
     }
 
+    /// <summary>Platziertes Bild (Unterschrift oder Stempel), verschieb- und skalierbar.</summary>
+    public sealed class PlacedItem : Notify
+    {
+        public PageItem Page { get; }
+        public byte[] Png { get; }
+        public ImageSource Image { get; }
+        public string Kind { get; }
+        public double Aspect { get; }   // Höhe / Breite (Pixel)
+        public double NX, NY, NW;
+
+        private double _l, _t, _w, _h;
+        private bool _sel;
+        public double Left { get => _l; private set { _l = value; On(); } }
+        public double Top { get => _t; private set { _t = value; On(); } }
+        public double W { get => _w; private set { _w = value; On(); } }
+        public double H { get => _h; private set { _h = value; On(); } }
+        public bool IsSelected { get => _sel; set { _sel = value; On(); } }
+
+        /// <summary>Höhe relativ zur Seitenhöhe (aus Breite und Seitenverhältnis).</summary>
+        public double NH => NW * Page.BaseWidth * Aspect / Page.BaseHeight;
+
+        public PlacedItem(PageItem page, byte[] png, string kind, double nx, double ny, double nw)
+        {
+            Page = page; Png = png; Kind = kind;
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.StreamSource = new MemoryStream(png);
+            bmp.EndInit();
+            bmp.Freeze();
+            Image = bmp;
+            Aspect = bmp.PixelHeight / (double)Math.Max(1, bmp.PixelWidth);
+            NX = nx; NY = ny; NW = nw;
+            UpdateDisplay();
+        }
+
+        public void Move(double dxNorm, double dyNorm)
+        {
+            NX = Math.Max(-NW * 0.5, Math.Min(1 - NW * 0.5, NX + dxNorm));
+            NY = Math.Max(-NH * 0.5, Math.Min(1 - NH * 0.5, NY + dyNorm));
+            UpdateDisplay();
+        }
+
+        public void Resize(double newNw)
+        {
+            NW = Math.Max(0.03, Math.Min(1.2, newNw));
+            UpdateDisplay();
+        }
+
+        public void UpdateDisplay()
+        {
+            Left = NX * Page.Width;
+            Top = NY * Page.Height;
+            W = NW * Page.Width;
+            H = NH * Page.Height;
+        }
+    }
+
     /// <summary>Eine Seite im aktuellen Dokument (verweist auf Quelle + Seitennummer).</summary>
     public sealed class PageItem : Notify
     {
@@ -151,6 +209,7 @@ namespace KantaPdf.Services
         public ObservableCollection<RectItem> Selection { get; } = new ObservableCollection<RectItem>();
         public ObservableCollection<HighlightItem> Highlights { get; } = new ObservableCollection<HighlightItem>();
         public ObservableCollection<NoteItem> Notes { get; } = new ObservableCollection<NoteItem>();
+        public ObservableCollection<PlacedItem> Placed { get; } = new ObservableCollection<PlacedItem>();
 
         // Textschicht
         public List<WordBox> Words;
@@ -178,6 +237,7 @@ namespace KantaPdf.Services
             foreach (var r in Selection) r.UpdateDisplay();
             foreach (var h in Highlights) foreach (var r in h.Rects) r.UpdateDisplay();
             foreach (var n in Notes) n.UpdateDisplay();
+            foreach (var p in Placed) p.UpdateDisplay();
         }
 
         public void ApplyThumbWidth(double w)
@@ -186,6 +246,9 @@ namespace KantaPdf.Services
             ThumbH = w * BaseHeight / BaseWidth;
         }
 
-        public bool HasEdits => Redactions.Count > 0 || Highlights.Count > 0 || Notes.Count > 0;
+        public bool HasEdits => Redactions.Count > 0 || Highlights.Count > 0 || Notes.Count > 0 || Placed.Count > 0;
+
+        /// <summary>Drehung der Quellseite (0/90/180/270) – für Unterschriften/Stempel relevant.</summary>
+        public int SourceRotation { get; set; }
     }
 }

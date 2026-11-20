@@ -88,6 +88,19 @@
                 <TextBlock Text="Schwärzen"/>
               </StackPanel>
             </RadioButton>
+            <Border Width="1" Background="{DynamicResource Line}" Margin="6,5"/>
+            <Button Click="Sign_Click" Padding="11,5" Margin="0" ToolTip="Unterschrift einfügen">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xEE56;" FontSize="14" Margin="0,0,6,0" Foreground="{DynamicResource Muted}"/>
+                <TextBlock Text="Unterschreiben" Foreground="{DynamicResource Muted}"/>
+              </StackPanel>
+            </Button>
+            <Button Click="Stamp_Click" Padding="11,5" Margin="0" ToolTip="Stempel einfügen">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE8EC;" FontSize="14" Margin="0,0,6,0" Foreground="{DynamicResource Muted}"/>
+                <TextBlock Text="Stempel" Foreground="{DynamicResource Muted}"/>
+              </StackPanel>
+            </Button>
           </StackPanel>
         </Border>
 
@@ -245,7 +258,8 @@
                      VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      AllowDrop="True" Drop="Thumb_Drop" DragOver="Window_DragOver"
                      SelectionChanged="Thumb_SelectionChanged" PreviewKeyDown="Thumb_KeyDown"
-                     PreviewMouseLeftButtonUp="Thumb_Clicked">
+                     PreviewMouseLeftButtonUp="Thumb_Clicked"
+                     PreviewMouseLeftButtonDown="Thumb_PreviewDown" PreviewMouseMove="Thumb_PreviewMove">
               <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                   <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -436,6 +450,51 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+                <!-- Unterschriften & Stempel -->
+                <ItemsControl ItemsSource="{Binding Placed}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Width="{Binding W}" Height="{Binding H}">
+                        <Image Source="{Binding Image}" Stretch="Fill" IsHitTestVisible="False" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <Border x:Name="SelFrame" Margin="-4" CornerRadius="4" BorderThickness="1.5" BorderBrush="{DynamicResource Accent}"
+                                Visibility="Hidden" IsHitTestVisible="False"/>
+                        <Thumb Cursor="SizeAll" DragStarted="Placed_DragStarted" DragDelta="Placed_Move" DragCompleted="Placed_DragCompleted"
+                               ToolTip="Ziehen zum Verschieben · Entf zum Löschen">
+                          <Thumb.Template>
+                            <ControlTemplate TargetType="Thumb"><Border Background="Transparent"/></ControlTemplate>
+                          </Thumb.Template>
+                        </Thumb>
+                        <Thumb x:Name="SizeGrip" Width="16" Height="16" Margin="0,0,-8,-8" Cursor="SizeNWSE"
+                               HorizontalAlignment="Right" VerticalAlignment="Bottom" Visibility="Hidden"
+                               DragStarted="Placed_DragStarted" DragDelta="Placed_Resize" DragCompleted="Placed_DragCompleted" ToolTip="Größe ändern">
+                          <Thumb.Template>
+                            <ControlTemplate TargetType="Thumb">
+                              <Ellipse Fill="{DynamicResource Accent}" Stroke="White" StrokeThickness="2"/>
+                            </ControlTemplate>
+                          </Thumb.Template>
+                        </Thumb>
+                        <Button x:Name="PlacedDel" Style="{StaticResource IconChip}" Content="&#xE74D;" Width="24" Height="24" FontSize="11"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-14,-14,0" Visibility="Hidden"
+                                Click="Placed_Delete" ToolTip="Entfernen"/>
+                      </Grid>
+                      <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                          <Setter TargetName="SelFrame" Property="Visibility" Value="Visible"/>
+                          <Setter TargetName="SizeGrip" Property="Visibility" Value="Visible"/>
+                          <Setter TargetName="PlacedDel" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                      </DataTemplate.Triggers>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </Grid>
             </Border>
           </DataTemplate>
@@ -458,11 +517,11 @@
               <TextBlock Text="PDF öffnen"/>
             </StackPanel>
           </Button>
-          <Grid Margin="0,22,0,0" Width="380" Height="96">
+          <Grid Margin="0,22,0,0" Width="460" Height="96">
             <Rectangle RadiusX="14" RadiusY="14" Stroke="{DynamicResource Muted}" StrokeThickness="1.3" StrokeDashArray="4 3" Opacity="0.55"/>
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-              <TextBlock Text="PDFs hierher ziehen" HorizontalAlignment="Center" FontWeight="SemiBold"/>
-              <TextBlock Text="Mehrere Dateien auf einmal werden automatisch zusammengefügt."
+              <TextBlock Text="Dateien hierher ziehen" HorizontalAlignment="Center" FontWeight="SemiBold"/>
+              <TextBlock Text="PDF, Word, Excel, PowerPoint oder Bilder – mehrere werden automatisch zusammengefügt."
                          Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
             </StackPanel>
           </Grid>
@@ -490,7 +549,7 @@
     </Border>
 
     <!-- ═════════ Notiz-Editor ═════════ -->
-    <Popup x:Name="NotePopup" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
+    <Popup x:Name="NotePopup" StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade"
            Placement="Right" HorizontalOffset="6" Closed="NotePopup_Closed">
       <Border Background="{DynamicResource Bar}" CornerRadius="12" BorderBrush="{DynamicResource Line}" BorderThickness="1"
               Padding="14,12" Margin="10" Width="300">
@@ -507,9 +566,11 @@
           </DockPanel>
           <TextBox x:Name="NoteText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="96" MaxHeight="260"
                    VerticalScrollBarVisibility="Auto" Margin="0,8,0,0" BorderThickness="0" Background="Transparent"
-                   FontSize="13.5" Padding="0,2"/>
-          <TextBlock Text="Wird beim Speichern als PDF-Kommentar abgelegt – auch in Acrobat sichtbar."
-                     Style="{StaticResource Hint}" FontSize="11" Margin="0,6,0,0"/>
+                   FontSize="13.5" Padding="0,2" PreviewKeyDown="NoteText_KeyDown"/>
+          <DockPanel Margin="0,8,0,0">
+            <Button DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="Fertig" Click="NoteDone_Click" Padding="14,5"/>
+            <TextBlock Text="Strg+Enter = fertig · Esc schließt" Style="{StaticResource Hint}" FontSize="11" VerticalAlignment="Center"/>
+          </DockPanel>
         </StackPanel>
       </Border>
     </Popup>

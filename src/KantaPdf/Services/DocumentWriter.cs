@@ -42,7 +42,8 @@ namespace KantaPdf.Services
                 Page = p,
                 Notes = p.Notes.Where(x => !string.IsNullOrWhiteSpace(x.Text))
                                .Select(x => (x.NX, x.NY, x.Text, x.Author, x.Created)).ToList(),
-                Highlights = p.Highlights.Select(h => (h.Rects.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList(), h.Text, h.Author, h.Created)).ToList()
+                Highlights = p.Highlights.Select(h => (h.Rects.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList(), h.Text, h.Author, h.Created)).ToList(),
+                Placed = p.Placed.Select(x => (x.Png, x.NX, x.NY, x.NW, x.NH)).ToList()
             }).ToList();
 
             progress?.Report("Speichere …");
@@ -93,6 +94,24 @@ namespace KantaPdf.Services
                                 box = target.Elements.ContainsKey("/CropBox") ? target.CropBox : target.MediaBox;
                             }
 
+                            // Unterschriften & Stempel fest in den Seiteninhalt zeichnen
+                            if (plan.Placed.Count > 0 && rot == 0)
+                            {
+                                var media = target.MediaBox;
+                                double mLeft = Math.Min(media.X1, media.X2), mTop = Math.Max(media.Y1, media.Y2);
+                                using var gfx = XGraphics.FromPdfPage(target, XGraphicsPdfPageOptions.Append);
+                                foreach (var pl in plan.Placed)
+                                {
+                                    var a = ToPdf(box, 0, pl.NX, pl.NY);
+                                    var c = ToPdf(box, 0, pl.NX + pl.NW, pl.NY + pl.NH);
+                                    var ms = new MemoryStream(pl.Png);
+                                    keepAlive.Add(ms);
+                                    var img = XImage.FromStream(ms);
+                                    keepAlive.Add(img);
+                                    gfx.DrawImage(img, a.x - mLeft, mTop - a.y, c.x - a.x, a.y - c.y);
+                                }
+                            }
+
                             foreach (var h in plan.Highlights) AddHighlight(outDoc, target, box, rot, h.Item1, h.Item2, h.Item3, h.Item4);
                             foreach (var note in plan.Notes) AddNote(outDoc, target, box, rot, note.NX, note.NY, note.Text, note.Author, note.Created);
                         }
@@ -114,6 +133,7 @@ namespace KantaPdf.Services
             public PageItem Page;
             public List<(double NX, double NY, string Text, string Author, DateTime Created)> Notes;
             public List<(List<(double, double, double, double)>, string, string, DateTime)> Highlights;
+            public List<(byte[] Png, double NX, double NY, double NW, double NH)> Placed;
         }
 
         // ───────────── Schwärzen (Pixel) ─────────────
