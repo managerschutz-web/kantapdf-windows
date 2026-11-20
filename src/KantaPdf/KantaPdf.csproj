@@ -17,7 +17,7 @@
     <Product>KANTApdf</Product>
     <Company>wetzel.digital</Company>
     <Copyright>Made with ♥ in Ummaschumm</Copyright>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
 
     <!-- Eine einzelne EXE, ohne dass .NET installiert sein muss -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -38,6 +38,7 @@
   <ItemGroup>
     <Resource Include="Assets\kanta.ico" />
     <Resource Include="Assets\kanta.png" />
+    <Resource Include="Assets\dieapp.png" />
   </ItemGroup>
 
 </Project>

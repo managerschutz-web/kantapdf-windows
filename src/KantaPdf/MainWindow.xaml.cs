@@ -68,6 +68,31 @@ namespace KantaPdf
         // Vorschlag für „Speichern unter“, wenn das Dokument (noch) keinen Pfad hat
         private string _suggestName, _suggestDir;
 
+        // Marker-Farbe
+        private static readonly (string name, Color color)[] MarkerPalette =
+        {
+            ("Gelb", Color.FromRgb(0xFF, 0xD8, 0x4A)),
+            ("Grün", Color.FromRgb(0x7C, 0xE0, 0x5A)),
+            ("Blau", Color.FromRgb(0x5A, 0xB8, 0xFF)),
+            ("Pink", Color.FromRgb(0xFF, 0x7E, 0xC8)),
+            ("Orange", Color.FromRgb(0xFF, 0xA0, 0x3C)),
+        };
+        private Color _markerColor = Color.FromRgb(0xFF, 0xD8, 0x4A);
+
+        // Suche
+        private readonly List<RectItem> _hits = new List<RectItem>();
+        private int _hitIndex = -1;
+        private string _lastQuery;
+        private int _searchGen;
+
+        // Fokusmodus
+        private bool _focus;
+        private WindowState _prevState;
+        private Visibility _prevSidebar;
+
+        // Startbildschirm
+        private readonly ObservableCollection<RecentItem> _recent = new ObservableCollection<RecentItem>();
+
         // Meldung
         private Action _toastAction;
         private string _toastPath;
@@ -109,7 +134,12 @@ namespace KantaPdf
             LocationChanged += (s, e) => CloseNotePopup();
             Sidebar.SizeChanged += (s, e) => { ApplyThumbWidths(); Kick(); };
 
+            RecentList.ItemsSource = _recent;
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            VersionText.Text = v != null ? $"KANTApdf {v.Major}.{v.Minor}.{v.Build}" : "KANTApdf";
+            BuildMarkerPalette();
             UpdateUi();
+            _ = LoadRecentAsync();
         }
 
         private void Kick()
@@ -198,6 +228,7 @@ namespace KantaPdf
                 {
                     _savePath = sources[0].Path;
                     SetDirty(false);
+                    Recent.Add(_savePath);
                 }
                 else if (sources.Count == 1)
                 {
@@ -391,6 +422,8 @@ namespace KantaPdf
             BtnSave.IsEnabled = BtnSaveAs.IsEnabled = has;
             ToolPill.IsEnabled = has;
             MenuSplit.IsEnabled = MenuOcr.IsEnabled = MenuCompress.IsEnabled = MenuProtect.IsEnabled = has;
+            BtnPrint.IsEnabled = BtnSearch.IsEnabled = has;
+            FileChip.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
             if (!has) { PageCountText.Text = ""; FileName.Text = ""; Title = "KANTApdf"; }
             else UpdateTitle();
         }
@@ -399,6 +432,7 @@ namespace KantaPdf
         {
             string name = _savePath != null ? Path.GetFileName(_savePath) : "Neues Dokument";
             FileName.Text = name + (_dirty ? "  ·  geändert" : "");
+            FileName.ToolTip = _savePath ?? name;
             Title = $"{(_dirty ? "● " : "")}{name} – KANTApdf";
         }
 
@@ -626,6 +660,19 @@ namespace KantaPdf
             if (!_rendering) _ = PumpAsync();
         }
 
+        /// <summary>Seite so rendern, wie sie angezeigt wird (inkl. Nutzer-Drehung). widthPx = Anzeigebreite.</summary>
+        private static async Task<System.Windows.Media.Imaging.BitmapSource> RenderDisplayAsync(PageItem p, int widthPx)
+        {
+            int srcPx = p.ExtraRotation % 180 == 0
+                ? widthPx
+                : (int)Math.Round(widthPx * p.SourceSize.Width / p.SourceSize.Height);
+            var bmp = await p.Source.View.RenderAsync(p.SourceIndex, Math.Max(16, srcPx));
+            if (p.ExtraRotation == 0) return bmp;
+            var rot = new System.Windows.Media.Imaging.TransformedBitmap(bmp, new RotateTransform(p.ExtraRotation));
+            rot.Freeze();
+            return rot;
+        }
+
         private async Task PumpAsync()
         {
             _rendering = true;
@@ -643,7 +690,7 @@ namespace KantaPdf
                     int px = isThumb ? ThumbPx(p) : TargetPx(p);
                     try
                     {
-                        var bmp = await p.Source.View.RenderAsync(p.SourceIndex, px);
+                        var bmp = await RenderDisplayAsync(p, px);
                         var shown = mode == ReadMode.Papier ? bmp : await Task.Run(() => Tint.Apply(bmp, mode));
                         if (isThumb) { p.Thumb = shown; p.ThumbPx = px; p.ThumbMode = mode; }
                         else { p.Image = shown; p.RenderedPx = px; p.RenderedMode = mode; }
@@ -734,6 +781,14 @@ namespace KantaPdf
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
+            if (e.Key == Key.F11) { Focus_Click(null, null); e.Handled = true; return; }
+            if (e.Key == Key.F3 && _pages.Count > 0)
+            {
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) SearchPrev_Click(null, null); else SearchNext_Click(null, null);
+                e.Handled = true; return;
+            }
+            if (e.Key == Key.Escape && _focus && !inText) { Focus_Click(null, null); e.Handled = true; return; }
+            if (e.Key == Key.Escape && SearchBar.Visibility == Visibility.Visible) { SearchClose_Click(null, null); e.Handled = true; return; }
             if (e.Key == Key.Escape && _pendingPng != null)
             {
                 EndPlacement();
@@ -760,6 +815,10 @@ namespace KantaPdf
             switch (e.Key)
             {
                 case Key.O: Open_Click(null, null); e.Handled = true; break;
+                case Key.F: if (_pages.Count > 0) { Search_Click(null, null); e.Handled = true; } break;
+                case Key.P: if (_pages.Count > 0) { Print_Click(null, null); e.Handled = true; } break;
+                case Key.W: if (_pages.Count > 0) { CloseDoc_Click(null, null); e.Handled = true; } break;
+                case Key.R: if (_pages.Count > 0 && !inText) { RotatePages(new List<PageItem> { _pages[_currentIndex] }, shift ? -90 : 90); e.Handled = true; } break;
                 case Key.S:
                     if (_pages.Count > 0) { if (shift) SaveAs_Click(null, null); else Save_Click(null, null); }
                     e.Handled = true; break;
@@ -823,6 +882,7 @@ namespace KantaPdf
                     break;
             }
             ModeBar.Visibility = t == Tool.Text ? Visibility.Collapsed : Visibility.Visible;
+            MarkerColors.Visibility = t == Tool.Marker ? Visibility.Visible : Visibility.Collapsed;
             UpdateRedactCount();
         }
 
@@ -945,8 +1005,8 @@ namespace KantaPdf
         {
             if (page.Words != null || page.WordsLoading) return;
             page.WordsLoading = true;
-            try { page.Words = await TextLayer.LoadAsync(page); }
-            catch { page.Words = new List<WordBox>(); }
+            try { page.SetWords(await TextLayer.LoadAsync(page)); }
+            catch { page.SetWords(new List<WordBox>()); }
             finally { page.WordsLoading = false; }
         }
 
@@ -1011,6 +1071,7 @@ namespace KantaPdf
             var h = new HighlightItem(_selPage) { Text = TextLayer.JoinText(words) };
             foreach (var (x, y, w, hh) in TextLayer.LineRects(words))
                 h.Rects.Add(new RectItem(_selPage, x, y - hh * 0.05, w, hh * 1.1));
+            h.SetColor(_markerColor);
             _selPage.Highlights.Add(h);
             ClearSelection();
             SetDirty(true);
@@ -1035,6 +1096,15 @@ namespace KantaPdf
                 np.X >= r.NX && np.X <= r.NX + r.NW && np.Y >= r.NY && np.Y <= r.NY + r.NH));
             if (hl != null)
             {
+                var colorMenu = new MenuItem { Header = "Farbe ändern" };
+                foreach (var (name, color) in MarkerPalette)
+                {
+                    var c = color;
+                    var mi = MenuItemFor(name, null, () => { hl.SetColor(c); SetDirty(true); });
+                    mi.Icon = new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(4), Background = new SolidColorBrush(c) };
+                    colorMenu.Items.Add(mi);
+                }
+                menu.Items.Add(colorMenu);
                 menu.Items.Add(MenuItemFor("Markierung entfernen", null, () => { page.Highlights.Remove(hl); SetDirty(true); }));
                 menu.Items.Add(new Separator());
             }
@@ -1148,6 +1218,7 @@ namespace KantaPdf
             _pendingKind = kind;
             PageList.Cursor = Cursors.Cross;
             RedactActions.Visibility = Visibility.Collapsed;
+            MarkerColors.Visibility = Visibility.Collapsed;
             ModeTitle.Text = kind + ":";
             ModeHint.Text = "Auf die Stelle klicken, an der sie stehen soll. Danach verschieben oder an der grünen Ecke größer ziehen. Esc bricht ab.";
             ModeCount.Text = "";
@@ -1163,7 +1234,7 @@ namespace KantaPdf
 
         private void PlacePending(PageItem page, Point np)
         {
-            if (page.SourceRotation != 0)
+            if (page.SourceRotation != 0 || page.ExtraRotation != 0)
             {
                 ShowToast("Diese Seite ist im PDF gedreht – dort kann noch nicht unterschrieben/gestempelt werden.", null, null);
                 return;
@@ -1304,6 +1375,7 @@ namespace KantaPdf
                 await DocumentWriter.SaveAsync(_pages.ToList(), path, progress);
                 _savePath = path;
                 SetDirty(false);
+                Recent.Add(path);
                 IsEnabled = true;
 
                 if (burned)
@@ -1409,6 +1481,412 @@ namespace KantaPdf
             if (f == null) return;
             var dlg = new ProtectWindow(f.Value.path, f.Value.password) { Owner = this };
             if (dlg.ShowDialog() == true) ShowToast(dlg.Info, null, null, dlg.ResultPath);
+        }
+
+        // ═════════════════════════ Dokument schließen ═════════════════════════
+
+        private async void CloseDoc_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pages.Count == 0) return;
+            if (_dirty)
+            {
+                var r = MessageBox.Show(this, "Änderungen speichern, bevor das Dokument geschlossen wird?", "KANTApdf",
+                    MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+                if (r == MessageBoxResult.Cancel) return;
+                if (r == MessageBoxResult.Yes)
+                {
+                    bool ok = NeedsSaveAs ? await SaveAsFlowAsync(null) : await SaveToAsync(_savePath);
+                    if (!ok) return;
+                }
+            }
+            CloseDocument();
+        }
+
+        private void CloseDocument()
+        {
+            CloseNotePopup();
+            ClearSelection();
+            SearchClose_Click(null, null);
+            if (_focus) Focus_Click(null, null);
+            _queue.Clear(); _thumbQueue.Clear(); _undo.Clear();
+            _pages.Clear();
+            _savePath = null;
+            _suggestName = _suggestDir = null;
+            SetDirty(false);
+            SelectTool(Tool.Text);
+            AfterStructureChange();
+            UpdateUi();
+            _ = LoadRecentAsync();
+        }
+
+        // ═════════════════════════ Startbildschirm ═════════════════════════
+
+        private async Task LoadRecentAsync()
+        {
+            _recent.Clear();
+            foreach (var path in Recent.Load().Where(File.Exists).Take(7))
+                _recent.Add(new RecentItem(path));
+            RecentEmpty.Visibility = _recent.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var r in _recent.ToList())
+                r.Thumb = await Recent.ThumbAsync(r.Path, 90);
+        }
+
+        private void Recent_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is RecentItem r) _ = OpenFilesAsync(new[] { r.Path }, -1);
+        }
+
+        private void Recent_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is RecentItem r)) return;
+            var menu = new ContextMenu { PlacementTarget = (UIElement)sender };
+            menu.Items.Add(MenuItemFor("Öffnen", null, () => _ = OpenFilesAsync(new[] { r.Path }, -1)));
+            menu.Items.Add(MenuItemFor("Im Ordner zeigen", null, () =>
+            {
+                try { Process.Start("explorer.exe", $"/select,\"{r.Path}\""); } catch { }
+            }));
+            menu.Items.Add(MenuItemFor("Aus der Liste entfernen", null, () => { Recent.Remove(r.Path); _recent.Remove(r); RecentEmpty.Visibility = _recent.Count == 0 ? Visibility.Visible : Visibility.Collapsed; }));
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+
+        private void DieApp_Click(object sender, RoutedEventArgs e)
+        {
+            try { Process.Start(new ProcessStartInfo("https://dieapp.info") { UseShellExecute = true }); } catch { }
+        }
+
+        private async void Tile_Click(object sender, RoutedEventArgs e)
+        {
+            var kind = (sender as FrameworkElement)?.Tag as string;
+            string filter = kind == "convert"
+                ? "Office & Bilder|" + string.Join(";", Converter.ConvertibleExt.Select(x => "*" + x))
+                : Converter.OpenFilter;
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = filter,
+                Multiselect = kind == "merge" || kind == "convert",
+                Title = kind switch
+                {
+                    "merge" => "Dateien zum Zusammenfügen wählen (mehrere markieren)",
+                    "convert" => "Datei(en) in PDF umwandeln",
+                    "sign" => "Welche Datei soll unterschrieben werden?",
+                    "compress" => "Welche Datei soll kleiner werden?",
+                    "ocr" => "Welcher Scan soll durchsuchbar werden?",
+                    "protect" => "Welche Datei soll ein Kennwort bekommen?",
+                    _ => "Öffnen"
+                }
+            };
+            if (dlg.ShowDialog(this) != true) return;
+            await OpenFilesAsync(dlg.FileNames, -1);
+            if (_pages.Count == 0) return;
+            switch (kind)
+            {
+                case "sign": Sign_Click(null, null); break;
+                case "compress": Compress_Click(null, null); break;
+                case "ocr": Ocr_Click(null, null); break;
+                case "protect": Protect_Click(null, null); break;
+            }
+        }
+
+        // ═════════════════════════ Marker-Farben ═════════════════════════
+
+        private void BuildMarkerPalette()
+        {
+            foreach (var (name, color) in MarkerPalette)
+            {
+                var c = color;
+                var dot = new Border
+                {
+                    Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Margin = new Thickness(3, 0, 3, 0),
+                    Background = new SolidColorBrush(c), Cursor = Cursors.Hand, ToolTip = name,
+                    BorderThickness = new Thickness(c == _markerColor ? 3 : 1.5),
+                    BorderBrush = c == _markerColor ? (Brush)FindResource("Ink") : new SolidColorBrush(Color.FromArgb(0x40, 0, 0, 0)),
+                    Tag = c
+                };
+                dot.MouseLeftButtonUp += (s, e) =>
+                {
+                    _markerColor = c;
+                    foreach (var child in MarkerColors.Children.OfType<Border>())
+                    {
+                        bool on = (Color)child.Tag == c;
+                        child.BorderThickness = new Thickness(on ? 3 : 1.5);
+                        child.BorderBrush = on ? (Brush)FindResource("Ink") : new SolidColorBrush(Color.FromArgb(0x40, 0, 0, 0));
+                    }
+                };
+                MarkerColors.Children.Add(dot);
+            }
+        }
+
+        // ═════════════════════════ Seiten drehen / extrahieren ═════════════════════════
+
+        private void RotatePages(IList<PageItem> pages, int delta)
+        {
+            var list = pages.Where(p => p != null).Distinct().ToList();
+            if (list.Count == 0) return;
+            if (list.Any(p => p.Placed.Count > 0))
+            {
+                ShowToast("Seiten mit Unterschrift oder Stempel können (noch) nicht gedreht werden.", null, null);
+                list = list.Where(p => p.Placed.Count == 0).ToList();
+                if (list.Count == 0) return;
+            }
+            if (list.Contains(_selPage)) ClearSelection();
+            foreach (var p in list)
+            {
+                p.RotateBy(delta);
+                p.ApplyZoom(_zoom);
+            }
+            SetDirty(true);
+            _maxPageWidth = _pages.Max(p => p.BaseWidth);
+            ApplyThumbWidths();
+            Kick();
+        }
+
+        private void ThumbRotate_Click(object sender, RoutedEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is PageItem page)) return;
+            var sel = ThumbList.SelectedItems.Cast<PageItem>().ToList();
+            RotatePages(sel.Count > 1 && sel.Contains(page) ? sel : new List<PageItem> { page }, 90);
+            e.Handled = true;
+        }
+
+        private void Thumb_RightClick(object sender, MouseButtonEventArgs e)
+        {
+            var lbi = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+            if (!(lbi?.DataContext is PageItem page)) return;
+            if (!lbi.IsSelected) { ThumbList.SelectedItems.Clear(); lbi.IsSelected = true; }
+            var sel = ThumbList.SelectedItems.Cast<PageItem>().OrderBy(_pages.IndexOf).ToList();
+            string n = sel.Count == 1 ? "Seite" : $"{sel.Count} Seiten";
+
+            var menu = new ContextMenu { PlacementTarget = lbi };
+            menu.Items.Add(MenuItemFor($"{n} nach rechts drehen", "Strg+R", () => RotatePages(sel, 90)));
+            menu.Items.Add(MenuItemFor($"{n} nach links drehen", "Strg+Umschalt+R", () => RotatePages(sel, -90)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItemFor($"{n} als eigene PDF speichern …", null, () => _ = ExtractAsync(sel)));
+            menu.Items.Add(MenuItemFor("Datei hier einfügen …", null, () => AppendDialog(_pages.IndexOf(sel.Last()) + 1)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItemFor($"{n} löschen", "Entf", () => DeletePages(sel)));
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+
+        private async Task ExtractAsync(List<PageItem> pages)
+        {
+            if (pages.Count == 0) return;
+            string baseName = _savePath != null ? Path.GetFileNameWithoutExtension(_savePath) : (_suggestName ?? "Dokument");
+            string label = pages.Count == 1 ? $"S{pages[0].Number}" : $"S{pages.First().Number}-{pages.Last().Number}";
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "PDF-Dateien|*.pdf",
+                FileName = $"{baseName}_{label}.pdf",
+                InitialDirectory = _savePath != null ? Path.GetDirectoryName(_savePath) : _suggestDir,
+                Title = "Ausgewählte Seiten speichern"
+            };
+            if (dlg.ShowDialog(this) != true) return;
+            try
+            {
+                await DocumentWriter.SaveAsync(pages, dlg.FileName, null);
+                ShowToast($"{pages.Count} Seite{(pages.Count == 1 ? "" : "n")} gespeichert: {Path.GetFileName(dlg.FileName)}",
+                    "Öffnen", () => _ = OpenFilesAsync(new[] { dlg.FileName }, -1), dlg.FileName);
+            }
+            catch (Exception ex) { ShowError("Speichern hat nicht geklappt.", ex); }
+        }
+
+        // ═════════════════════════ Suchen ═════════════════════════
+
+        private void Search_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pages.Count == 0) return;
+            SearchBar.Visibility = Visibility.Visible;
+            SearchBox.Focus();
+            SearchBox.SelectAll();
+        }
+
+        private void SearchClose_Click(object sender, RoutedEventArgs e)
+        {
+            SearchBar.Visibility = Visibility.Collapsed;
+            foreach (var p in _pages) p.SearchHits.Clear();
+            _hits.Clear();
+            _hitIndex = -1;
+            _lastQuery = null;
+            SearchInfo.Text = "";
+        }
+
+        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // kurze Pause abwarten, dann suchen
+            int gen = ++_searchGen;
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                await Task.Delay(280);
+                if (gen == _searchGen) await RunSearchAsync(SearchBox.Text);
+            }));
+        }
+
+        private void SearchBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) SearchPrev_Click(null, null); else SearchNext_Click(null, null);
+                e.Handled = true;
+            }
+        }
+
+        private async Task RunSearchAsync(string query)
+        {
+            query = (query ?? "").Trim();
+            if (query == _lastQuery) return;
+            _lastQuery = query;
+            foreach (var p in _pages) p.SearchHits.Clear();
+            _hits.Clear();
+            _hitIndex = -1;
+            if (query.Length < 2) { SearchInfo.Text = ""; return; }
+
+            int gen = _searchGen;
+            SearchInfo.Text = "suche …";
+            var q = query.ToLowerInvariant();
+            foreach (var page in _pages.ToList())
+            {
+                await EnsureWordsAsync(page);
+                if (gen != _searchGen) return;
+                var words = page.Words;
+                if (words == null || words.Count == 0) continue;
+
+                // Text der Seite mit Zuordnung Zeichen → Wort
+                var sb = new System.Text.StringBuilder();
+                var map = new List<int>();
+                for (int i = 0; i < words.Count; i++)
+                {
+                    if (i > 0) { sb.Append(' '); map.Add(i); }
+                    foreach (var ch in words[i].Text) { sb.Append(char.ToLowerInvariant(ch)); map.Add(i); }
+                }
+                var text = sb.ToString();
+                int pos = 0;
+                while ((pos = text.IndexOf(q, pos, StringComparison.Ordinal)) >= 0)
+                {
+                    int a = map[pos], b = map[Math.Min(map.Count - 1, pos + q.Length - 1)];
+                    foreach (var (x, y, w, h) in TextLayer.LineRects(words.GetRange(a, b - a + 1)))
+                    {
+                        var r = new RectItem(page, x - 0.002, y - h * 0.1, w + 0.004, h * 1.2);
+                        page.SearchHits.Add(r);
+                        _hits.Add(r);
+                    }
+                    pos += q.Length;
+                }
+            }
+            if (_hits.Count == 0) { SearchInfo.Text = "0 Treffer"; return; }
+            _hitIndex = -1;
+            SearchNext_Click(null, null);
+        }
+
+        private void SearchNext_Click(object sender, RoutedEventArgs e) => GoToHit(+1);
+        private void SearchPrev_Click(object sender, RoutedEventArgs e) => GoToHit(-1);
+
+        private void GoToHit(int dir)
+        {
+            if (_hits.Count == 0) return;
+            if (_hitIndex >= 0 && _hitIndex < _hits.Count) _hits[_hitIndex].IsCurrent = false;
+            _hitIndex = ((_hitIndex + dir) % _hits.Count + _hits.Count) % _hits.Count;
+            var hit = _hits[_hitIndex];
+            hit.IsCurrent = true;
+            SearchInfo.Text = $"{_hitIndex + 1} / {_hits.Count}";
+            ScrollToPage(hit.Page, Math.Max(0, hit.Top - 160));
+        }
+
+        // ═════════════════════════ Drucken ═════════════════════════
+
+        private async void Print_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pages.Count == 0) return;
+            var dlg = new PrintDialog { UserPageRangeEnabled = true, MinPage = 1, MaxPage = (uint)_pages.Count };
+            dlg.PageRange = new PageRange(1, _pages.Count);
+            if (dlg.ShowDialog() != true) return;
+
+            int from = 1, to = _pages.Count;
+            if (dlg.PageRangeSelection == PageRangeSelection.UserPages)
+            {
+                from = Math.Max(1, dlg.PageRange.PageFrom);
+                to = Math.Min(_pages.Count, dlg.PageRange.PageTo);
+            }
+            var pages = _pages.Skip(from - 1).Take(to - from + 1).ToList();
+            var size = new Size(dlg.PrintableAreaWidth, dlg.PrintableAreaHeight);
+
+            IsEnabled = false;
+            try
+            {
+                var jpgs = new List<byte[]>();
+                int n = 0;
+                foreach (var p in pages)
+                {
+                    n++;
+                    ShowToast($"Bereite Druck vor … Seite {n} von {pages.Count}", null, null);
+                    jpgs.Add(await RenderForPrintAsync(p));
+                }
+                ShowToast("Sende an Drucker …", null, null);
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                dlg.PrintDocument(new PrintPaginator(jpgs, size), FileName.Text);
+                ShowToast($"{pages.Count} Seite{(pages.Count == 1 ? "" : "n")} an den Drucker geschickt.", null, null);
+            }
+            catch (Exception ex) { ShowError("Drucken hat nicht geklappt.", ex); }
+            finally { IsEnabled = true; }
+        }
+
+        /// <summary>Seite in Druckqualität inkl. Markern, Schwärzungen, Unterschriften und Stempeln.</summary>
+        private async Task<byte[]> RenderForPrintAsync(PageItem p)
+        {
+            int px = (int)Math.Min(3400, Math.Round(p.BaseWidth / 96.0 * 220));
+            var bmp = await RenderDisplayAsync(p, px);
+            double w = bmp.PixelWidth, h = bmp.PixelHeight;
+
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                dc.DrawImage(bmp, new Rect(0, 0, w, h));
+                foreach (var hl in p.Highlights)
+                {
+                    var c = hl.Color;
+                    var b = new SolidColorBrush(Color.FromArgb(0x70, c.R, c.G, c.B));
+                    foreach (var r in hl.Rects) dc.DrawRectangle(b, null, new Rect(r.NX * w, r.NY * h, r.NW * w, r.NH * h));
+                }
+                foreach (var r in p.Redactions) dc.DrawRectangle(Brushes.Black, null, new Rect(r.NX * w, r.NY * h, r.NW * w, r.NH * h));
+                foreach (var pl in p.Placed) dc.DrawImage(pl.Image, new Rect(pl.NX * w, pl.NY * h, pl.NW * w, pl.NH * h));
+            }
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)w, (int)h, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            var flat = new System.Windows.Media.Imaging.FormatConvertedBitmap(rtb, PixelFormats.Bgr24, null, 0);
+            var enc = new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 88 };
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(flat));
+            using var ms = new MemoryStream();
+            enc.Save(ms);
+            return ms.ToArray();
+        }
+
+        // ═════════════════════════ Fokusmodus ═════════════════════════
+
+        private void Focus_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pages.Count == 0 && !_focus) return;
+            _focus = !_focus;
+            if (_focus)
+            {
+                _prevState = WindowState;
+                _prevSidebar = Sidebar.Visibility;
+                Header.Visibility = Visibility.Collapsed;
+                ModeBar.Visibility = Visibility.Collapsed;
+                if (Sidebar.Visibility == Visibility.Visible) SidebarToggle_Click(null, null);
+                WindowStyle = WindowStyle.None;
+                if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal; // Taskleiste mit abdecken
+                WindowState = WindowState.Maximized;
+                ShowToast("Fokusmodus – F11 oder Esc beendet ihn.", null, null);
+            }
+            else
+            {
+                Header.Visibility = Visibility.Visible;
+                WindowStyle = WindowStyle.SingleBorderWindow;
+                WindowState = _prevState;
+                if (_prevSidebar == Visibility.Visible && Sidebar.Visibility != Visibility.Visible) SidebarToggle_Click(null, null);
+                ApplyTool(_tool);
+            }
+            Dispatcher.BeginInvoke(new Action(FitWidth), DispatcherPriority.Loaded);
         }
 
         // ═════════════════════════ Meldungen ═════════════════════════

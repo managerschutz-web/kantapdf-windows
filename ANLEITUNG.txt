@@ -1,4 +1,4 @@
-KANTApdf für Windows – v0.3.0
+KANTApdf für Windows – v0.4.0
 =============================
 Made with ♥ in Ummaschumm
 
@@ -17,7 +17,15 @@ ERSTER START
   Später jederzeit: Werkzeuge → Einrichten.
 - Als Standard für PDFs: Rechtsklick auf eine PDF → Öffnen mit → KANTApdf → „Immer“.
 
+STARTBILDSCHIRM
+- Schnellstart-Kacheln: Zusammenfügen, In PDF umwandeln, Unterschreiben, Verkleinern, Scan durchsuchbar, Kennwort
+- „Zuletzt geöffnet“ mit Vorschau (Rechtsklick: im Ordner zeigen / aus Liste entfernen)
+- Dokument schließen ohne KANTApdf zu beenden: × neben dem Dateinamen oder Strg+W
+
 LESEN
+- Suchen: Strg+F, Enter/F3 = nächster Treffer, Umschalt+F3 = vorheriger
+- Drucken: Strg+P (inkl. Marker, Schwärzungen, Unterschriften, Stempel)
+- Fokusmodus: F11 – nur noch das Dokument, Esc beendet
 - Ansicht Papier / Sepia / Nacht (rechts oben, wird gemerkt)
 - Zoom: Strg + Mausrad, Strg +/−, Strg+0 = auf Breite einpassen
 - Seitenleiste links: Vorschau aller Seiten, Breite per Ziehen am Rand, ☰ blendet sie aus
@@ -25,6 +33,8 @@ LESEN
 
 SEITEN
 - Seite löschen: Papierkorb auf der Vorschau oder Entf (mehrere mit Strg/Umschalt auswählen)
+- Seite drehen: Dreh-Knopf auf der Vorschau, Strg+R (rechts) / Strg+Umschalt+R (links)
+- Rechtsklick auf Vorschau: drehen, als eigene PDF speichern, Datei hier einfügen, löschen
 - Rückgängig: Strg+Z
 
 OFFICE & BILDER → PDF
@@ -57,7 +67,8 @@ ZUSAMMENFÜGEN – so einfach wie möglich
 
 TEXT, MARKER, NOTIZEN (Schalter oben in der Mitte)
 - Text: mit der Maus überstreichen → Strg+C kopiert; Doppelklick = Wort; Strg+A = ganze Seite; Rechtsklick = Menü
-- Marker: Text überstreichen → gelb hervorgehoben; Rechtsklick auf Markierung → entfernen
+- Marker: Farbe in der grünen Leiste wählen (Gelb, Grün, Blau, Pink, Orange), Text überstreichen;
+  Rechtsklick auf Markierung → Farbe ändern / entfernen
 - Notiz: auf eine Stelle klicken und tippen, „Fertig“ oder Strg+Enter; leere Notiz verschwindet
 - Schwärzen: Balken aufziehen → „Schwärzen & speichern unter“; betroffene Seiten werden als Bild neu
   aufgebaut, darunter ist garantiert nichts mehr lesbar

@@ -42,7 +42,8 @@ namespace KantaPdf.Services
                 Page = p,
                 Notes = p.Notes.Where(x => !string.IsNullOrWhiteSpace(x.Text))
                                .Select(x => (x.NX, x.NY, x.Text, x.Author, x.Created)).ToList(),
-                Highlights = p.Highlights.Select(h => (h.Rects.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList(), h.Text, h.Author, h.Created)).ToList(),
+                Highlights = p.Highlights.Select(h => (h.Rects.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList(), h.Text, h.Author, h.Created, h.Color)).ToList(),
+                Extra = p.ExtraRotation,
                 Placed = p.Placed.Select(x => (x.Png, x.NX, x.NY, x.NW, x.NH)).ToList()
             }).ToList();
 
@@ -74,7 +75,9 @@ namespace KantaPdf.Services
                                 keepAlive.Add(img);
                                 using (var gfx = XGraphics.FromPdfPage(target))
                                     gfx.DrawImage(img, 0, 0, b.wPt, b.hPt);
-                                rot = 0;
+                                // Nutzer-Drehung über /Rotate, Koordinaten entsprechend
+                                rot = plan.Extra;
+                                if (rot != 0) target.Elements.SetInteger("/Rotate", rot);
                                 box = new PdfRectangle(new XPoint(0, 0), new XPoint(b.wPt, b.hPt));
                             }
                             else
@@ -91,6 +94,11 @@ namespace KantaPdf.Services
                                 }
                                 target = outDoc.AddPage(srcDoc.Pages[plan.Page.SourceIndex]);
                                 rot = ((target.Elements.GetInteger("/Rotate") % 360) + 360) % 360;
+                                if (plan.Extra != 0)
+                                {
+                                    rot = (rot + plan.Extra) % 360;
+                                    target.Elements.SetInteger("/Rotate", rot);
+                                }
                                 box = target.Elements.ContainsKey("/CropBox") ? target.CropBox : target.MediaBox;
                             }
 
@@ -112,7 +120,7 @@ namespace KantaPdf.Services
                                 }
                             }
 
-                            foreach (var h in plan.Highlights) AddHighlight(outDoc, target, box, rot, h.Item1, h.Item2, h.Item3, h.Item4);
+                            foreach (var h in plan.Highlights) AddHighlight(outDoc, target, box, rot, h.Item1, h.Item2, h.Item3, h.Item4, h.Item5);
                             foreach (var note in plan.Notes) AddNote(outDoc, target, box, rot, note.NX, note.NY, note.Text, note.Author, note.Created);
                         }
                         outDoc.Save(temp);
@@ -132,7 +140,8 @@ namespace KantaPdf.Services
         {
             public PageItem Page;
             public List<(double NX, double NY, string Text, string Author, DateTime Created)> Notes;
-            public List<(List<(double, double, double, double)>, string, string, DateTime)> Highlights;
+            public List<(List<(double, double, double, double)>, string, string, DateTime, Color)> Highlights;
+            public int Extra;
             public List<(byte[] Png, double NX, double NY, double NW, double NH)> Placed;
         }
 
@@ -150,7 +159,8 @@ namespace KantaPdf.Services
             var buf = new byte[stride * h];
             conv.CopyPixels(buf, stride, 0);
 
-            var boxes = pg.Redactions.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList();
+            int back = (360 - pg.ExtraRotation) % 360;
+            var boxes = pg.Redactions.Select(r => Geo.Rot(r.NX, r.NY, r.NW, r.NH, back)).ToList();
             await Task.Run(() =>
             {
                 foreach (var (nx, ny, nw, nh) in boxes)
@@ -262,7 +272,7 @@ namespace KantaPdf.Services
 
         private static void AddHighlight(PdfDocument doc, PdfPage page, PdfRectangle box, int rot,
                                          List<(double nx, double ny, double nw, double nh)> rects,
-                                         string text, string author, DateTime created)
+                                         string text, string author, DateTime created, Color color)
         {
             if (rects.Count == 0) return;
 
@@ -287,7 +297,8 @@ namespace KantaPdf.Services
             annot.Elements["/Subtype"] = new PdfName("/Highlight");
             annot.Elements["/Rect"] = Numbers(doc, minX, minY, maxX, maxY);
             annot.Elements["/QuadPoints"] = Numbers(doc, quads.ToArray());
-            annot.Elements["/C"] = Numbers(doc, 1, 0.89, 0.30);
+            double cr = color.R / 255.0, cg = color.G / 255.0, cb = color.B / 255.0;
+            annot.Elements["/C"] = Numbers(doc, cr, cg, cb);
             annot.Elements["/T"] = new PdfString(author ?? "", PdfStringEncoding.Unicode);
             if (!string.IsNullOrEmpty(text)) annot.Elements["/Contents"] = new PdfString(text, PdfStringEncoding.Unicode);
             annot.Elements["/M"] = new PdfString(PdfDate(DateTime.Now));
@@ -306,7 +317,7 @@ namespace KantaPdf.Services
             var res = new PdfDictionary(doc);
             res.Elements["/ExtGState"] = gsDict;
 
-            var sb = new StringBuilder("/G0 gs 1 0.89 0.30 rg ");
+            var sb = new StringBuilder($"/G0 gs {F(cr)} {F(cg)} {F(cb)} rg ");
             foreach (var (x0, y0, x1, y1) in pdfRects)
                 sb.Append($"{F(x0 - minX)} {F(y0 - minY)} {F(x1 - x0)} {F(y1 - y0)} re ");
             sb.Append("f");

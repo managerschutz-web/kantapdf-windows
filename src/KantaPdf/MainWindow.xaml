@@ -17,7 +17,7 @@
     </Grid.RowDefinitions>
 
     <!-- ═════════ Kopfleiste ═════════ -->
-    <Border Background="{DynamicResource Bar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,8">
+    <Border x:Name="Header" Background="{DynamicResource Bar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,8">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -50,11 +50,25 @@
               <TextBlock Text="Speichern"/>
             </StackPanel>
           </Button>
-          <Button x:Name="BtnSaveAs" Click="SaveAs_Click" ToolTip="Speichern unter …" Padding="8,6">
+          <Button x:Name="BtnSaveAs" Click="SaveAs_Click" ToolTip="Speichern unter … (Strg+Umschalt+S)" Padding="8,6">
             <TextBlock Style="{StaticResource Ico}" Text="&#xE792;"/>
           </Button>
-          <TextBlock x:Name="FileName" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"
-                     Margin="10,0" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
+          <Button x:Name="BtnPrint" Click="Print_Click" ToolTip="Drucken (Strg+P)" Padding="8,6">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE749;"/>
+          </Button>
+          <Button x:Name="BtnSearch" Click="Search_Click" ToolTip="Suchen (Strg+F)" Padding="8,6">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE721;"/>
+          </Button>
+          <Border x:Name="FileChip" Background="{DynamicResource Pill}" CornerRadius="9" Padding="10,3,4,3" Margin="10,0,0,0"
+                  VerticalAlignment="Center" Visibility="Collapsed">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock x:Name="FileName" Foreground="{DynamicResource Ink}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" MaxWidth="230" FontSize="12.5"/>
+              <Button Click="CloseDoc_Click" Padding="6,3" Margin="4,0,0,0" ToolTip="Dokument schließen (Strg+W)">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE711;" FontSize="10"/>
+              </Button>
+            </StackPanel>
+          </Border>
         </StackPanel>
 
         <!-- Mitte: Werkzeug-Schalter -->
@@ -187,7 +201,10 @@
               </Button>
             </StackPanel>
           </Border>
-          <Button x:Name="BtnMode" Click="Mode_Click" Margin="6,0,0,0" ToolTip="Ansicht: Papier · Sepia · Nacht">
+          <Button Click="Focus_Click" Margin="6,0,0,0" Padding="8,6" ToolTip="Fokusmodus – nur das Dokument (F11)">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE740;"/>
+          </Button>
+          <Button x:Name="BtnMode" Click="Mode_Click" Margin="2,0,0,0" ToolTip="Ansicht: Papier · Sepia · Nacht">
             <StackPanel Orientation="Horizontal">
               <TextBlock Style="{StaticResource Ico}" Text="&#xE706;" Margin="0,0,6,0"/>
               <TextBlock x:Name="ModeText" Text="Papier"/>
@@ -201,6 +218,9 @@
     <Border x:Name="ModeBar" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource AccentSoft}"
             BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,7">
       <DockPanel>
+        <StackPanel x:Name="MarkerColors" DockPanel.Dock="Right" Orientation="Horizontal" Visibility="Collapsed">
+          <TextBlock Text="Farbe" VerticalAlignment="Center" Foreground="{DynamicResource Muted}" Margin="0,0,10,0"/>
+        </StackPanel>
         <StackPanel x:Name="RedactActions" DockPanel.Dock="Right" Orientation="Horizontal">
           <Button Content="Alle Balken entfernen" Click="RedactClear_Click"/>
           <Button x:Name="BtnRedactApply" Style="{StaticResource Primary}" Content="Schwärzen &amp; speichern unter …" Click="RedactApply_Click" Margin="6,0,0,0"/>
@@ -259,7 +279,8 @@
                      AllowDrop="True" Drop="Thumb_Drop" DragOver="Window_DragOver"
                      SelectionChanged="Thumb_SelectionChanged" PreviewKeyDown="Thumb_KeyDown"
                      PreviewMouseLeftButtonUp="Thumb_Clicked"
-                     PreviewMouseLeftButtonDown="Thumb_PreviewDown" PreviewMouseMove="Thumb_PreviewMove">
+                     PreviewMouseLeftButtonDown="Thumb_PreviewDown" PreviewMouseMove="Thumb_PreviewMove"
+                     PreviewMouseRightButtonUp="Thumb_RightClick">
               <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                   <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -275,9 +296,13 @@
                                     Background="{DynamicResource PagePlaceholder}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
                               <Image Source="{Binding Thumb}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>
-                            <Button x:Name="Del" Style="{StaticResource IconChip}" Content="&#xE74D;" Click="ThumbDelete_Click"
-                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" Visibility="Hidden"
-                                    ToolTip="Seite löschen (Entf)"/>
+                            <StackPanel x:Name="Del" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Margin="0,6,6,0" Visibility="Hidden">
+                              <Button Style="{StaticResource IconChipSoft}" Content="&#xE7AD;" Click="ThumbRotate_Click" Margin="0,0,5,0"
+                                      ToolTip="Seite nach rechts drehen"/>
+                              <Button Style="{StaticResource IconChip}" Content="&#xE74D;" Click="ThumbDelete_Click"
+                                      ToolTip="Seite löschen (Entf)"/>
+                            </StackPanel>
                           </Grid>
                           <TextBlock x:Name="Num" Text="{Binding Number}" HorizontalAlignment="Center" Margin="0,7,0,0"
                                      FontSize="11.5" Foreground="{DynamicResource Muted}"/>
@@ -385,10 +410,33 @@
                         </ItemsControl.ItemContainerStyle>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>
-                            <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="{DynamicResource Marker}" RadiusX="1.5" RadiusY="1.5"/>
+                            <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="{Binding Fill}" RadiusX="1.5" RadiusY="1.5"/>
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Suchtreffer -->
+                <ItemsControl ItemsSource="{Binding SearchHits}" IsHitTestVisible="False">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Rectangle x:Name="Hit" Width="{Binding W}" Height="{Binding H}" Fill="#55FF9F1A" RadiusX="2" RadiusY="2"/>
+                      <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                          <Setter TargetName="Hit" Property="Fill" Value="#99FF7A00"/>
+                          <Setter TargetName="Hit" Property="Stroke" Value="#E06000"/>
+                          <Setter TargetName="Hit" Property="StrokeThickness" Value="1.5"/>
+                        </DataTrigger>
+                      </DataTemplate.Triggers>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -501,32 +549,224 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
 
-      <!-- Startbildschirm -->
-      <Grid x:Name="EmptyState" Grid.Column="0" Grid.ColumnSpan="3" Background="{DynamicResource Bg}">
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-          <Image Source="Assets/kanta.png" Width="88" Height="88" HorizontalAlignment="Center" Margin="0,0,0,14"
-                 RenderOptions.BitmapScalingMode="HighQuality"/>
-          <TextBlock HorizontalAlignment="Center" FontSize="40" FontWeight="Light">
-            <Run Text="KANTA" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" Foreground="{DynamicResource Muted}"/>
-          </TextBlock>
-          <TextBlock Text="Ruhig lesen. Schnell erledigen." Foreground="{DynamicResource Muted}" FontSize="15"
-                     HorizontalAlignment="Center" Margin="0,4,0,26"/>
-          <Button Style="{StaticResource Primary}" Click="Open_Click" HorizontalAlignment="Center" Padding="22,10" FontSize="14">
-            <StackPanel Orientation="Horizontal">
-              <TextBlock Style="{StaticResource Ico}" Text="&#xE8E5;" Margin="0,0,8,0" Foreground="White"/>
-              <TextBlock Text="PDF öffnen"/>
-            </StackPanel>
+      <!-- Suchleiste -->
+      <Border x:Name="SearchBar" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,14,26,0"
+              Background="{DynamicResource Bar}" CornerRadius="12" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+              Padding="10,6" Visibility="Collapsed">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.16"/>
+        </Border.Effect>
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Style="{StaticResource Ico}" Text="&#xE721;" Foreground="{DynamicResource Muted}" Margin="2,0,8,0"/>
+          <TextBox x:Name="SearchBox" Width="230" BorderThickness="0" Background="Transparent" FontSize="13.5"
+                   VerticalContentAlignment="Center" KeyDown="SearchBox_KeyDown" TextChanged="SearchBox_TextChanged"/>
+          <TextBlock x:Name="SearchInfo" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="8,0" MinWidth="54" TextAlignment="Right"/>
+          <Button Click="SearchPrev_Click" Padding="7,4" ToolTip="Vorheriger Treffer (Umschalt+F3)">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE70E;" FontSize="11"/>
           </Button>
-          <Grid Margin="0,22,0,0" Width="460" Height="96">
-            <Rectangle RadiusX="14" RadiusY="14" Stroke="{DynamicResource Muted}" StrokeThickness="1.3" StrokeDashArray="4 3" Opacity="0.55"/>
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-              <TextBlock Text="Dateien hierher ziehen" HorizontalAlignment="Center" FontWeight="SemiBold"/>
-              <TextBlock Text="PDF, Word, Excel, PowerPoint oder Bilder – mehrere werden automatisch zusammengefügt."
-                         Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-            </StackPanel>
-          </Grid>
-          <TextBlock Text="Made with ♥ in Ummaschumm" Style="{StaticResource Hint}" FontSize="11" HorizontalAlignment="Center" Margin="0,44,0,0"/>
+          <Button Click="SearchNext_Click" Padding="7,4" ToolTip="Nächster Treffer (Enter / F3)">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE70D;" FontSize="11"/>
+          </Button>
+          <Button Click="SearchClose_Click" Padding="7,4" ToolTip="Schließen (Esc)">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE711;" FontSize="10"/>
+          </Button>
         </StackPanel>
+      </Border>
+
+      <!-- Startbildschirm -->
+      <Grid x:Name="EmptyState" Grid.Column="0" Grid.ColumnSpan="3" Background="{DynamicResource Bg}" ClipToBounds="True">
+        <!-- weiche Farbflächen im Hintergrund -->
+        <Ellipse Width="720" Height="720" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-260,-300,0,0" IsHitTestVisible="False">
+          <Ellipse.Fill>
+            <RadialGradientBrush>
+              <GradientStop Color="#403C6E12" Offset="0"/>
+              <GradientStop Color="#003C6E12" Offset="1"/>
+            </RadialGradientBrush>
+          </Ellipse.Fill>
+        </Ellipse>
+        <Ellipse Width="820" Height="820" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-300,-360" IsHitTestVisible="False">
+          <Ellipse.Fill>
+            <RadialGradientBrush>
+              <GradientStop Color="#3300B4D8" Offset="0"/>
+              <GradientStop Color="#0000B4D8" Offset="1"/>
+            </RadialGradientBrush>
+          </Ellipse.Fill>
+        </Ellipse>
+
+        <DockPanel>
+          <!-- Fußzeile mit dieapp.info -->
+          <Border DockPanel.Dock="Bottom" Padding="28,14">
+            <DockPanel>
+              <TextBlock x:Name="VersionText" DockPanel.Dock="Right" Style="{StaticResource Hint}" VerticalAlignment="Center"/>
+              <Button Click="DieApp_Click" HorizontalAlignment="Left" Padding="8,6" ToolTip="dieapp.info öffnen">
+                <StackPanel Orientation="Horizontal">
+                  <Image Source="Assets/dieapp.png" Height="30" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,12,0"/>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="12.5"><Run Text="Eine App von "/><Run Text="dieapp.info" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/></TextBlock>
+                    <TextBlock Text="Made with ♥ in Ummaschumm" Style="{StaticResource Hint}" FontSize="11"/>
+                  </StackPanel>
+                </StackPanel>
+              </Button>
+            </DockPanel>
+          </Border>
+
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid MaxWidth="1180" Margin="48,40,48,10" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.25*"/>
+                <ColumnDefinition Width="48"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+
+              <!-- links: Held + Kacheln -->
+              <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                  <Image Source="Assets/kanta.png" Width="64" Height="64" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,16,0"/>
+                  <TextBlock FontSize="46" VerticalAlignment="Center">
+                    <Run Text="KANTA" FontWeight="Bold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" FontWeight="Light" Foreground="{DynamicResource Muted}"/>
+                  </TextBlock>
+                </StackPanel>
+                <TextBlock Text="Lesen. Unterschreiben. Erledigt." FontSize="28" FontWeight="SemiBold" Margin="0,22,0,0"/>
+                <TextBlock Text="Alles, was man mit PDFs wirklich braucht – ohne Abo, ohne Cloud, ohne Schnickschnack."
+                           Foreground="{DynamicResource Muted}" FontSize="15" TextWrapping="Wrap" Margin="0,6,0,24"/>
+
+                <StackPanel Orientation="Horizontal">
+                  <Button Style="{StaticResource Primary}" Click="Open_Click" Padding="22,11" FontSize="14.5">
+                    <StackPanel Orientation="Horizontal">
+                      <TextBlock Style="{StaticResource Ico}" Text="&#xE8E5;" Margin="0,0,9,0" Foreground="White"/>
+                      <TextBlock Text="Datei öffnen"/>
+                    </StackPanel>
+                  </Button>
+                  <TextBlock Text="oder einfach Dateien ins Fenster ziehen" Style="{StaticResource Hint}" FontSize="13"
+                             VerticalAlignment="Center" Margin="16,0,0,0"/>
+                </StackPanel>
+
+                <UniformGrid Columns="3" Margin="-6,30,0,0">
+                  <UniformGrid.Resources>
+                    <Style x:Key="TileBtn" TargetType="Button">
+                      <Setter Property="Cursor" Value="Hand"/>
+                      <Setter Property="Margin" Value="6"/>
+                      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                      <Setter Property="Template">
+                        <Setter.Value>
+                          <ControlTemplate TargetType="Button">
+                            <Border x:Name="card" Background="{DynamicResource Bar}" CornerRadius="14" Padding="16,14"
+                                    BorderBrush="{DynamicResource Line}" BorderThickness="1">
+                              <Border.Effect>
+                                <DropShadowEffect x:Name="sh" BlurRadius="14" ShadowDepth="2" Opacity="0.06"/>
+                              </Border.Effect>
+                              <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                              <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="card" Property="RenderTransform">
+                                  <Setter.Value><TranslateTransform Y="-2"/></Setter.Value>
+                                </Setter>
+                              </Trigger>
+                            </ControlTemplate.Triggers>
+                          </ControlTemplate>
+                        </Setter.Value>
+                      </Setter>
+                    </Style>
+                  </UniformGrid.Resources>
+                  <Button Style="{StaticResource TileBtn}" Tag="merge" Click="Tile_Click">
+                    <StackPanel>
+                      <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xE8F1;" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                      </Border>
+                      <TextBlock Text="Zusammenfügen" FontWeight="SemiBold" FontSize="14" Margin="0,12,0,2"/>
+                      <TextBlock Text="Mehrere Dateien zu einer PDF" Style="{StaticResource Hint}"/>
+                    </StackPanel>
+                  </Button>
+                  <Button Style="{StaticResource TileBtn}" Tag="convert" Click="Tile_Click">
+                    <StackPanel>
+                      <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xE8A5;" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                      </Border>
+                      <TextBlock Text="In PDF umwandeln" FontWeight="SemiBold" FontSize="14" Margin="0,12,0,2"/>
+                      <TextBlock Text="Word, Excel, PowerPoint, Bilder" Style="{StaticResource Hint}"/>
+                    </StackPanel>
+                  </Button>
+                  <Button Style="{StaticResource TileBtn}" Tag="sign" Click="Tile_Click">
+                    <StackPanel>
+                      <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xEE56;" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                      </Border>
+                      <TextBlock Text="Unterschreiben" FontWeight="SemiBold" FontSize="14" Margin="0,12,0,2"/>
+                      <TextBlock Text="Unterschrift oder Stempel drauf" Style="{StaticResource Hint}"/>
+                    </StackPanel>
+                  </Button>
+                  <Button Style="{StaticResource TileBtn}" Tag="compress" Click="Tile_Click">
+                    <StackPanel>
+                      <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xE73F;" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                      </Border>
+                      <TextBlock Text="Verkleinern" FontWeight="SemiBold" FontSize="14" Margin="0,12,0,2"/>
+                      <TextBlock Text="Klein genug für jede E-Mail" Style="{StaticResource Hint}"/>
+                    </StackPanel>
+                  </Button>
+                  <Button Style="{StaticResource TileBtn}" Tag="ocr" Click="Tile_Click">
+                    <StackPanel>
+                      <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xE8FE;" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                      </Border>
+                      <TextBlock Text="Scan durchsuchbar" FontWeight="SemiBold" FontSize="14" Margin="0,12,0,2"/>
+                      <TextBlock Text="Texterkennung, offline" Style="{StaticResource Hint}"/>
+                    </StackPanel>
+                  </Button>
+                  <Button Style="{StaticResource TileBtn}" Tag="protect" Click="Tile_Click">
+                    <StackPanel>
+                      <Border Width="38" Height="38" CornerRadius="11" Background="{DynamicResource AccentSoft}" HorizontalAlignment="Left">
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xE72E;" FontSize="17" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center"/>
+                      </Border>
+                      <TextBlock Text="Kennwort" FontWeight="SemiBold" FontSize="14" Margin="0,12,0,2"/>
+                      <TextBlock Text="Schützen mit AES-256" Style="{StaticResource Hint}"/>
+                    </StackPanel>
+                  </Button>
+                </UniformGrid>
+              </StackPanel>
+
+              <!-- rechts: Zuletzt geöffnet -->
+              <Border Grid.Column="2" Background="{DynamicResource Bar}" CornerRadius="18" Padding="18,16"
+                      BorderBrush="{DynamicResource Line}" BorderThickness="1" VerticalAlignment="Stretch">
+                <Border.Effect>
+                  <DropShadowEffect BlurRadius="24" ShadowDepth="3" Opacity="0.07"/>
+                </Border.Effect>
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Text="Zuletzt geöffnet" FontSize="16" FontWeight="SemiBold" Margin="2,0,0,10"/>
+                  <Grid>
+                    <ItemsControl x:Name="RecentList">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Button Click="Recent_Click" HorizontalContentAlignment="Stretch" Padding="8,7" Margin="0,1"
+                                  MouseRightButtonUp="Recent_RightClick" ToolTip="{Binding Path}">
+                            <DockPanel>
+                              <Border DockPanel.Dock="Left" Width="40" Height="54" CornerRadius="4" Background="White"
+                                      BorderBrush="{DynamicResource Line}" BorderThickness="1" Margin="0,0,12,0">
+                                <Image Source="{Binding Thumb}" Stretch="Uniform"/>
+                              </Border>
+                              <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Folder}" Style="{StaticResource Hint}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding When}" Style="{StaticResource Hint}" FontSize="11"/>
+                              </StackPanel>
+                            </DockPanel>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel x:Name="RecentEmpty" VerticalAlignment="Center" Margin="10,30">
+                      <TextBlock Style="{StaticResource Ico}" Text="&#xE81C;" FontSize="30" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" Opacity="0.6"/>
+                      <TextBlock Text="Hier erscheinen deine zuletzt geöffneten Dateien." Style="{StaticResource Hint}"
+                                 TextAlignment="Center" Margin="0,10,0,0"/>
+                    </StackPanel>
+                  </Grid>
+                </DockPanel>
+              </Border>
+            </Grid>
+          </ScrollViewer>
+        </DockPanel>
       </Grid>
     </Grid>
 
