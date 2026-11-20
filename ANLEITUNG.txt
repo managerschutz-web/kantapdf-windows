@@ -1,4 +1,4 @@
-KANTApdf für Windows – v0.5.0
+KANTApdf für Windows – v0.6.0
 =============================
 Made with ♥ in Ummaschumm
 
@@ -34,7 +34,11 @@ LESEN
 SEITEN
 - Seite löschen: Papierkorb auf der Vorschau oder Entf (mehrere mit Strg/Umschalt auswählen)
 - Seite drehen: Dreh-Knopf auf der Vorschau, Strg+R (rechts) / Strg+Umschalt+R (links)
-- Rechtsklick auf Vorschau: drehen, als eigene PDF speichern, Datei hier einfügen, löschen
+- Rechtsklick auf Vorschau/Seite: drehen, zuschneiden, als eigene PDF speichern, Datei hier einfügen, löschen
+- Werkzeuge → „Seite drehen“ / „Seite zuschneiden“
+- Zuschneiden: Ecken ziehen oder neuen Rahmen aufziehen, „Auf alle Seiten anwenden“ möglich,
+  Enter = zuschneiden, Esc = abbrechen, „Original“ entfernt den Zuschnitt wieder
+- Unterschriften, Stempel, eingefügte Texte, Marker und Notizen drehen beim Seitendrehen mit
 - Rückgängig: Strg+Z
 
 OFFICE & BILDER → PDF
@@ -95,7 +99,7 @@ WERKZEUGE (Menü rechts oben)
 BEKANNTE GRENZEN (v0.2)
 - Bereits vorhandene Kommentare in fremden PDFs werden angezeigt, sind aber (noch) nicht bearbeitbar
 - Formularfelder können beim Zusammenfügen/Speichern verloren gehen
-- OCR, Unterschrift, Stempel und eingefügter Text: noch nicht auf gedrehten Seiten
+- OCR überspringt im PDF gedrehte Seiten
 - Kennwortschutz entfernen: Lesezeichen gehen verloren
 
 TECHNIK

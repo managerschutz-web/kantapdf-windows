@@ -37,6 +37,7 @@ namespace KantaPdf.Services
             }
 
             // Anmerkungen einsammeln (UI-Objekte nicht im Hintergrund anfassen)
+            var imageCache = new Dictionary<byte[], PreparedImage>();
             var plans = pages.Select(p => new PagePlan
             {
                 Page = p,
@@ -45,8 +46,9 @@ namespace KantaPdf.Services
                 Highlights = p.Highlights.Select(h => (h.Rects.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList(), h.Text, h.Author, h.Created, h.Color)).ToList(),
                 Extra = p.ExtraRotation,
                 Fields = p.Fields.Where(f => f.Changed).Select(f => (f.AnnotIndex, f.Kind, f.Value ?? "", f.IsChecked, f.OnName)).ToList(),
-                Texts = p.Texts.Where(t => !string.IsNullOrWhiteSpace(t.Text)).Select(t => (t.NX, t.NY, t.Text, t.FontPt, t.Color, t.Bold)).ToList(),
-                Placed = p.Placed.Select(x => (x.Png, x.NX, x.NY, x.NW, x.NH)).ToList()
+                Texts = p.Texts.Where(t => !string.IsNullOrWhiteSpace(t.Text)).Select(t => (t.NX, t.NY, t.Text, t.FontPt, t.Color, t.Bold, t.Angle)).ToList(),
+                Placed = p.Placed.Select(x => (Prepare(x.Png, imageCache), x.CX, x.CY, x.WidthPt, x.HeightPt, x.Angle)).ToList(),
+                Crop = p.IsCropped ? (p.CropX, p.CropY, p.CropW, p.CropH) : ((double, double, double, double)?)null
             }).ToList();
 
             progress?.Report("Speichere …");
@@ -62,6 +64,7 @@ namespace KantaPdf.Services
                         outDoc.Info.Creator = "KANTApdf";
                         PdfDictionary helv = null;
                         var formPages = new List<PdfPage>();
+                        var res = new OverlayResources();
                         foreach (var plan in plans)
                         {
                             PdfPage target;
@@ -114,44 +117,22 @@ namespace KantaPdf.Services
                                 ApplyFields(outDoc, target, plan.Fields, helv);
                             }
 
-                            // Eingefügte Texte fest in den Seiteninhalt schreiben
-                            if (plan.Texts.Count > 0 && rot == 0)
-                            {
-                                var media = target.MediaBox;
-                                double mLeft = Math.Min(media.X1, media.X2), mTop = Math.Max(media.Y1, media.Y2);
-                                using var gfx = XGraphics.FromPdfPage(target, XGraphicsPdfPageOptions.Append);
-                                foreach (var t in plan.Texts)
-                                {
-                                    var pos = ToPdf(box, 0, t.NX, t.NY);
-                                    var font = new XFont("Arial", t.Pt, t.Bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
-                                    var brush = new XSolidBrush(XColor.FromArgb(t.Color.A, t.Color.R, t.Color.G, t.Color.B));
-                                    double x = pos.x - mLeft + 2.2, y = mTop - pos.y + 1.6, lh = t.Pt * 1.15;
-                                    var lines = t.Text.Replace("\r", "").Split('\n');
-                                    for (int li = 0; li < lines.Length; li++)
-                                        gfx.DrawString(lines[li], font, brush, x, y + li * lh, XStringFormats.TopLeft);
-                                }
-                            }
-
-                            // Unterschriften & Stempel fest in den Seiteninhalt zeichnen
-                            if (plan.Placed.Count > 0 && rot == 0)
-                            {
-                                var media = target.MediaBox;
-                                double mLeft = Math.Min(media.X1, media.X2), mTop = Math.Max(media.Y1, media.Y2);
-                                using var gfx = XGraphics.FromPdfPage(target, XGraphicsPdfPageOptions.Append);
-                                foreach (var pl in plan.Placed)
-                                {
-                                    var a = ToPdf(box, 0, pl.NX, pl.NY);
-                                    var c = ToPdf(box, 0, pl.NX + pl.NW, pl.NY + pl.NH);
-                                    var ms = new MemoryStream(pl.Png);
-                                    keepAlive.Add(ms);
-                                    var img = XImage.FromStream(ms);
-                                    keepAlive.Add(img);
-                                    gfx.DrawImage(img, a.x - mLeft, mTop - a.y, c.x - a.x, a.y - c.y);
-                                }
-                            }
+                            // Eingefügte Texte, Unterschriften & Stempel fest in den Seiteninhalt schreiben
+                            // (eigener Inhaltsstrom → funktioniert auch auf gedrehten Seiten)
+                            if (plan.Texts.Count > 0 || plan.Placed.Count > 0)
+                                DrawOverlays(outDoc, target, box, rot, plan, res);
 
                             foreach (var h in plan.Highlights) AddHighlight(outDoc, target, box, rot, h.Item1, h.Item2, h.Item3, h.Item4, h.Item5);
                             foreach (var note in plan.Notes) AddNote(outDoc, target, box, rot, note.NX, note.NY, note.Text, note.Author, note.Created);
+
+                            // Zuschnitt als /CropBox (in ungedrehten PDF-Koordinaten)
+                            if (plan.Crop.HasValue)
+                            {
+                                var (cx, cy, cw, ch) = plan.Crop.Value;
+                                var p0 = ToPdf(box, rot, cx, cy);
+                                var p1 = ToPdf(box, rot, cx + cw, cy + ch);
+                                target.Elements["/CropBox"] = Numbers(outDoc, Math.Min(p0.x, p1.x), Math.Min(p0.y, p1.y), Math.Max(p0.x, p1.x), Math.Max(p0.y, p1.y));
+                            }
                         }
                         BuildAcroForm(outDoc, formPages, helv);
                         outDoc.Save(temp);
@@ -174,8 +155,9 @@ namespace KantaPdf.Services
             public List<(List<(double, double, double, double)>, string, string, DateTime, Color)> Highlights;
             public int Extra;
             public List<(int AnnotIndex, FieldKind Kind, string Value, bool Checked, string OnName)> Fields;
-            public List<(double NX, double NY, string Text, double Pt, Color Color, bool Bold)> Texts;
-            public List<(byte[] Png, double NX, double NY, double NW, double NH)> Placed;
+            public List<(double NX, double NY, string Text, double Pt, Color Color, bool Bold, int Angle)> Texts;
+            public List<(PreparedImage Img, double CX, double CY, double WPt, double HPt, int Angle)> Placed;
+            public (double X, double Y, double W, double H)? Crop;
         }
 
         // ───────────── Schwärzen (Pixel) ─────────────
@@ -263,6 +245,172 @@ namespace KantaPdf.Services
             form.CreateStream(Encoding.ASCII.GetBytes(content));
             doc.Internals.AddObject(form);
             return form;
+        }
+
+        // ───────────── Texte, Unterschriften, Stempel (eigener Inhaltsstrom) ─────────────
+
+        public sealed class PreparedImage
+        {
+            public int W, H;
+            public byte[] Rgb, Alpha;
+        }
+
+        private sealed class OverlayResources
+        {
+            public readonly Dictionary<PreparedImage, PdfReference> Images = new Dictionary<PreparedImage, PdfReference>();
+            public PdfReference Helv, HelvBold;
+            public int Counter;
+        }
+
+        /// <summary>PNG → RGB + Alpha (im UI-Thread, WPF-Dekoder).</summary>
+        private static PreparedImage Prepare(byte[] png, Dictionary<byte[], PreparedImage> cache)
+        {
+            if (cache.TryGetValue(png, out var hit)) return hit;
+            var dec = BitmapDecoder.Create(new MemoryStream(png), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var conv = new FormatConvertedBitmap(dec.Frames[0], PixelFormats.Bgra32, null, 0);
+            int w = conv.PixelWidth, h = conv.PixelHeight;
+            var px = new byte[w * h * 4];
+            conv.CopyPixels(px, w * 4, 0);
+            var rgb = new byte[w * h * 3];
+            var alpha = new byte[w * h];
+            bool hasAlpha = false;
+            for (int i = 0, j = 0, k = 0; i < px.Length; i += 4, j += 3, k++)
+            {
+                rgb[j] = px[i + 2]; rgb[j + 1] = px[i + 1]; rgb[j + 2] = px[i];
+                alpha[k] = px[i + 3];
+                if (px[i + 3] != 255) hasAlpha = true;
+            }
+            var pi = new PreparedImage { W = w, H = h, Rgb = rgb, Alpha = hasAlpha ? alpha : null };
+            cache[png] = pi;
+            return pi;
+        }
+
+        private static byte[] Zlib(byte[] data)
+        {
+            using var ms = new MemoryStream();
+            using (var z = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true))
+                z.Write(data, 0, data.Length);
+            return ms.ToArray();
+        }
+
+        private static PdfReference ImageObject(PdfDocument doc, PreparedImage img, OverlayResources res)
+        {
+            if (res.Images.TryGetValue(img, out var r)) return r;
+            PdfDictionary Make(byte[] data, string cs)
+            {
+                var d = new PdfDictionary(doc);
+                d.Elements["/Type"] = new PdfName("/XObject");
+                d.Elements["/Subtype"] = new PdfName("/Image");
+                d.Elements["/Width"] = new PdfInteger(img.W);
+                d.Elements["/Height"] = new PdfInteger(img.H);
+                d.Elements["/ColorSpace"] = new PdfName(cs);
+                d.Elements["/BitsPerComponent"] = new PdfInteger(8);
+                d.Elements["/Filter"] = new PdfName("/FlateDecode");
+                d.CreateStream(Zlib(data));
+                doc.Internals.AddObject(d);
+                return d;
+            }
+            var main = Make(img.Rgb, "/DeviceRGB");
+            if (img.Alpha != null) main.Elements["/SMask"] = Make(img.Alpha, "/DeviceGray").Reference;
+            res.Images[img] = main.Reference;
+            return main.Reference;
+        }
+
+        private static PdfReference FontObject(PdfDocument doc, bool bold, OverlayResources res)
+        {
+            if (bold && res.HelvBold != null) return res.HelvBold;
+            if (!bold && res.Helv != null) return res.Helv;
+            var f = new PdfDictionary(doc);
+            f.Elements["/Type"] = new PdfName("/Font");
+            f.Elements["/Subtype"] = new PdfName("/Type1");
+            f.Elements["/BaseFont"] = new PdfName(bold ? "/Helvetica-Bold" : "/Helvetica");
+            f.Elements["/Encoding"] = new PdfName("/WinAnsiEncoding");
+            doc.Internals.AddObject(f);
+            if (bold) res.HelvBold = f.Reference; else res.Helv = f.Reference;
+            return f.Reference;
+        }
+
+        /// <summary>Einheitsvektoren (PDF-Raum) für „rechts“ und „unten“ der Anzeige bei Seitendrehung rot.</summary>
+        private static ((double x, double y) right, (double x, double y) down) DisplayAxes(int rot)
+        {
+            switch (rot)
+            {
+                case 90: return ((0, 1), (1, 0));
+                case 180: return ((-1, 0), (0, 1));
+                case 270: return ((0, -1), (-1, 0));
+                default: return ((1, 0), (0, -1));
+            }
+        }
+
+        /// <summary>Achsen eines Elements mit eigener Drehung (Uhrzeigersinn) in PDF-Koordinaten.</summary>
+        private static ((double x, double y) right, (double x, double y) down) ItemAxes(int rot, int angle)
+        {
+            var (r, d) = DisplayAxes(rot);
+            (double x, double y) ir = (1, 0), id = (0, 1);
+            for (int i = 0; i < ((angle % 360) + 360) % 360 / 90; i++) { ir = (-ir.y, ir.x); id = (-id.y, id.x); }
+            (double, double) Map((double x, double y) v) => (v.x * r.x + v.y * d.x, v.x * r.y + v.y * d.y);
+            return (Map(ir), Map(id));
+        }
+
+        private static void SubResource(PdfDocument doc, PdfDictionary resources, string key, string name, PdfItem value)
+        {
+            var sub = FormReader.Resolve(resources.Elements[key]) as PdfDictionary;
+            if (sub == null)
+            {
+                sub = new PdfDictionary(doc);
+                resources.Elements[key] = sub;
+            }
+            sub.Elements[name] = value;
+        }
+
+        private static void DrawOverlays(PdfDocument doc, PdfPage page, PdfRectangle box, int rot, PagePlan plan, OverlayResources res)
+        {
+            var resources = page.Resources;
+            var ms = new MemoryStream();
+            void W(string s) { var b = Encoding.ASCII.GetBytes(s); ms.Write(b, 0, b.Length); }
+            W("Q\nq\n");
+
+            foreach (var pl in plan.Placed)
+            {
+                var (r, d) = ItemAxes(rot, pl.Angle);
+                var c = ToPdf(box, rot, pl.CX, pl.CY);
+                double w = pl.WPt, h = pl.HPt;
+                double ex = c.x - r.x * w / 2 + d.x * h / 2, ey = c.y - r.y * w / 2 + d.y * h / 2;
+                string name = "/KImg" + (++res.Counter);
+                SubResource(doc, resources, "/XObject", name, ImageObject(doc, pl.Img, res));
+                W($"q {F(r.x * w)} {F(r.y * w)} {F(-d.x * h)} {F(-d.y * h)} {F(ex)} {F(ey)} cm {name} Do Q\n");
+            }
+
+            foreach (var t in plan.Texts)
+            {
+                var (r, d) = ItemAxes(rot, t.Angle);
+                var a = ToPdf(box, rot, t.NX, t.NY);
+                string fname = t.Bold ? "/KHelvB" : "/KHelv";
+                SubResource(doc, resources, "/Font", fname, FontObject(doc, t.Bold, res));
+                double pt = t.Pt, lh = pt * 1.15, padX = 2.2, padY = 1.6, asc = pt * 0.905;
+                W($"BT {fname} {F(pt)} Tf {F(t.Color.R / 255.0)} {F(t.Color.G / 255.0)} {F(t.Color.B / 255.0)} rg\n");
+                var lines = t.Text.Replace("\r", "").Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    double off = padY + asc + i * lh;
+                    double bx = a.x + r.x * padX + d.x * off, by = a.y + r.y * padX + d.y * off;
+                    W($"{F(r.x)} {F(r.y)} {F(-d.x)} {F(-d.y)} {F(bx)} {F(by)} Tm ");
+                    var lit = PdfLiteral(lines[i]); ms.Write(lit, 0, lit.Length); W(" Tj\n");
+                }
+                W("ET\n");
+            }
+
+            // vorhandenen Inhalt einklammern (q … Q), damit unser Koordinatensystem sauber startet
+            var pre = page.Contents.PrependContent();
+            SetStream(pre, Encoding.ASCII.GetBytes("q\n"));
+            var post = page.Contents.AppendContent();
+            SetStream(post, ms.ToArray());
+        }
+
+        private static void SetStream(PdfDictionary d, byte[] data)
+        {
+            if (d.Stream == null) d.CreateStream(data);
+            else d.Stream.Value = data;
         }
 
         // ───────────── Formularfelder ─────────────

@@ -168,6 +168,18 @@
                     <StackPanel Grid.Column="1"><TextBlock Text="Teilen" FontWeight="SemiBold"/>
                       <TextBlock Text="In mehrere Dateien aufteilen" Style="{StaticResource Hint}"/></StackPanel></Grid>
                 </Button>
+                <Button x:Name="MenuRotate" Style="{StaticResource MenuBtn}" Click="MenuRotate_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE7AD;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Seite drehen" FontWeight="SemiBold"/>
+                      <TextBlock Text="Aktuelle/markierte Seiten 90° nach rechts (Strg+R)" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
+                <Button x:Name="MenuCrop" Style="{StaticResource MenuBtn}" Click="MenuCrop_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE7A8;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Seite zuschneiden" FontWeight="SemiBold"/>
+                      <TextBlock Text="Ränder wegschneiden – eine oder alle Seiten" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
                 <Button x:Name="MenuOcr" Style="{StaticResource MenuBtn}" Click="Ocr_Click">
                   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
                     <TextBlock Style="{StaticResource Ico}" Text="&#xE8FE;" Foreground="{DynamicResource Accent}" FontSize="17"/>
@@ -227,6 +239,12 @@
       <DockPanel>
         <StackPanel x:Name="MarkerColors" DockPanel.Dock="Right" Orientation="Horizontal" Visibility="Collapsed">
           <TextBlock Text="Farbe" VerticalAlignment="Center" Foreground="{DynamicResource Muted}" Margin="0,0,10,0"/>
+        </StackPanel>
+        <StackPanel x:Name="CropActions" DockPanel.Dock="Right" Orientation="Horizontal" Visibility="Collapsed">
+          <CheckBox x:Name="CropAll" Content="Auf alle Seiten anwenden" Margin="0,0,14,0"/>
+          <Button Content="Original" Click="CropReset_Click" ToolTip="Zuschnitt entfernen"/>
+          <Button Content="Abbrechen" Click="CropCancel_Click"/>
+          <Button Style="{StaticResource Primary}" Content="Zuschneiden" Click="CropApply_Click" Margin="6,0,0,0"/>
         </StackPanel>
         <StackPanel x:Name="RedactActions" DockPanel.Dock="Right" Orientation="Horizontal">
           <Button Content="Alle Balken entfernen" Click="RedactClear_Click"/>
@@ -396,10 +414,14 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate>
             <Border Width="{Binding Width}" Height="{Binding Height}" Margin="0,8" HorizontalAlignment="Center"
-                    Background="{DynamicResource PagePlaceholder}">
+                    Background="{DynamicResource PagePlaceholder}" ClipToBounds="True">
               <Grid x:Name="PageSurface" Background="Transparent" ClipToBounds="True"
+                    Width="{Binding FullWidth}" Height="{Binding FullHeight}" HorizontalAlignment="Left" VerticalAlignment="Top"
                     MouseLeftButtonDown="Page_MouseDown" MouseMove="Page_MouseMove" MouseLeftButtonUp="Page_MouseUp"
                     MouseRightButtonUp="Page_RightClick">
+                <Grid.RenderTransform>
+                  <TranslateTransform X="{Binding CropOffsetX}" Y="{Binding CropOffsetY}"/>
+                </Grid.RenderTransform>
                 <Image Source="{Binding Image}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
 
                 <!-- Textmarker -->
@@ -583,7 +605,11 @@
                                  FontSize="{Binding DisplaySize}" Foreground="{Binding Brush}" FontWeight="{Binding Weight}"
                                  AcceptsReturn="True" Background="Transparent" BorderThickness="1" BorderBrush="Transparent"
                                  Padding="2,1" MinWidth="40" CaretBrush="{Binding Brush}" Cursor="IBeam"
-                                 Loaded="TextItem_Loaded" LostKeyboardFocus="TextItem_LostFocus" TextChanged="TextItem_Changed"/>
+                                 Loaded="TextItem_Loaded" LostKeyboardFocus="TextItem_LostFocus" TextChanged="TextItem_Changed">
+                          <TextBox.RenderTransform>
+                            <RotateTransform Angle="{Binding AngleD}"/>
+                          </TextBox.RenderTransform>
+                        </TextBox>
                         <Border x:Name="Bar" Visibility="Collapsed" Background="{DynamicResource Bar}" CornerRadius="9" Padding="3"
                                 BorderBrush="{DynamicResource Line}" BorderThickness="1"
                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-44,0,0">
@@ -638,6 +664,9 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
                       <Grid Width="{Binding W}" Height="{Binding H}">
+                        <Grid.LayoutTransform>
+                          <RotateTransform Angle="{Binding AngleD}"/>
+                        </Grid.LayoutTransform>
                         <Image Source="{Binding Image}" Stretch="Fill" IsHitTestVisible="False" RenderOptions.BitmapScalingMode="HighQuality"/>
                         <Border x:Name="SelFrame" Margin="-4" CornerRadius="4" BorderThickness="1.5" BorderBrush="{DynamicResource Accent}"
                                 Visibility="Hidden" IsHitTestVisible="False"/>
@@ -670,6 +699,36 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+                <!-- Zuschneiden (Bearbeitung) -->
+                <ItemsControl ItemsSource="{Binding CropEdit}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Canvas>
+                        <Rectangle Canvas.Left="0" Canvas.Top="0" Width="{Binding FW}" Height="{Binding Top}" Fill="#88000000" IsHitTestVisible="False"/>
+                        <Rectangle Canvas.Left="0" Canvas.Top="{Binding Bottom}" Width="{Binding FW}" Height="{Binding BottomH}" Fill="#88000000" IsHitTestVisible="False"/>
+                        <Rectangle Canvas.Left="0" Canvas.Top="{Binding Top}" Width="{Binding Left}" Height="{Binding H}" Fill="#88000000" IsHitTestVisible="False"/>
+                        <Rectangle Canvas.Left="{Binding Right}" Canvas.Top="{Binding Top}" Width="{Binding RightW}" Height="{Binding H}" Fill="#88000000" IsHitTestVisible="False"/>
+                        <Thumb Canvas.Left="{Binding Left}" Canvas.Top="{Binding Top}" Width="{Binding W}" Height="{Binding H}"
+                               Cursor="SizeAll" Tag="move" DragDelta="Crop_Drag" ToolTip="Rahmen verschieben">
+                          <Thumb.Template>
+                            <ControlTemplate TargetType="Thumb">
+                              <Border Background="Transparent" BorderBrush="White" BorderThickness="2">
+                                <Border BorderBrush="{DynamicResource Accent}" BorderThickness="1.5" Margin="-1"/>
+                              </Border>
+                            </ControlTemplate>
+                          </Thumb.Template>
+                        </Thumb>
+                        <Thumb Tag="tl" DragDelta="Crop_Drag" Cursor="SizeNWSE" Width="16" Height="16" Canvas.Left="{Binding Left}" Canvas.Top="{Binding Top}" Margin="-8,-8,0,0" Template="{StaticResource CropHandle}"/>
+                        <Thumb Tag="tr" DragDelta="Crop_Drag" Cursor="SizeNESW" Width="16" Height="16" Canvas.Left="{Binding Right}" Canvas.Top="{Binding Top}" Margin="-8,-8,0,0" Template="{StaticResource CropHandle}"/>
+                        <Thumb Tag="bl" DragDelta="Crop_Drag" Cursor="SizeNESW" Width="16" Height="16" Canvas.Left="{Binding Left}" Canvas.Top="{Binding Bottom}" Margin="-8,-8,0,0" Template="{StaticResource CropHandle}"/>
+                        <Thumb Tag="br" DragDelta="Crop_Drag" Cursor="SizeNWSE" Width="16" Height="16" Canvas.Left="{Binding Right}" Canvas.Top="{Binding Bottom}" Margin="-8,-8,0,0" Template="{StaticResource CropHandle}"/>
+                      </Canvas>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
               </Grid>
             </Border>
           </DataTemplate>

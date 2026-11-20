@@ -94,10 +94,10 @@ namespace KantaPdf.Services
 
         public void UpdateDisplay()
         {
-            Left = NX * Page.Width;
-            Top = NY * Page.Height;
-            W = NW * Page.Width;
-            H = NH * Page.Height;
+            Left = NX * Page.FullWidth;
+            Top = NY * Page.FullHeight;
+            W = NW * Page.FullWidth;
+            H = NH * Page.FullHeight;
         }
     }
 
@@ -157,12 +157,12 @@ namespace KantaPdf.Services
 
         public void UpdateDisplay()
         {
-            Left = NX * Page.Width - 6;
-            Top = NY * Page.Height - 6;
+            Left = NX * Page.FullWidth - 6;
+            Top = NY * Page.FullHeight - 6;
         }
     }
 
-    /// <summary>Platziertes Bild (Unterschrift oder Stempel), verschieb- und skalierbar.</summary>
+    /// <summary>Platziertes Bild (Unterschrift oder Stempel): Mitte, Breite in pt, eigene Drehung.</summary>
     public sealed class PlacedItem : Notify
     {
         public PageItem Page { get; }
@@ -170,20 +170,24 @@ namespace KantaPdf.Services
         public ImageSource Image { get; }
         public string Kind { get; }
         public double Aspect { get; }   // Höhe / Breite (Pixel)
-        public double NX, NY, NW;
+        public double CX, CY;           // Mitte, relativ zur (ganzen) Seite
+        public double WidthPt;          // Breite in PDF-Punkten (ungedreht)
+        public int Angle;               // eigene Drehung im Uhrzeigersinn (0/90/180/270)
 
-        private double _l, _t, _w, _h;
+        private double _l, _t, _w, _h, _bw, _bh;
         private bool _sel;
         public double Left { get => _l; private set { _l = value; On(); } }
         public double Top { get => _t; private set { _t = value; On(); } }
         public double W { get => _w; private set { _w = value; On(); } }
         public double H { get => _h; private set { _h = value; On(); } }
+        public double BoxW { get => _bw; private set { _bw = value; On(); } }
+        public double BoxH { get => _bh; private set { _bh = value; On(); } }
+        public double AngleD => Angle;
         public bool IsSelected { get => _sel; set { _sel = value; On(); } }
 
-        /// <summary>Höhe relativ zur Seitenhöhe (aus Breite und Seitenverhältnis).</summary>
-        public double NH => NW * Page.BaseWidth * Aspect / Page.BaseHeight;
+        public double HeightPt => WidthPt * Aspect;
 
-        public PlacedItem(PageItem page, byte[] png, string kind, double nx, double ny, double nw)
+        public PlacedItem(PageItem page, byte[] png, string kind, double cx, double cy, double widthPt)
         {
             Page = page; Png = png; Kind = kind;
             var bmp = new System.Windows.Media.Imaging.BitmapImage();
@@ -194,29 +198,78 @@ namespace KantaPdf.Services
             bmp.Freeze();
             Image = bmp;
             Aspect = bmp.PixelHeight / (double)Math.Max(1, bmp.PixelWidth);
-            NX = nx; NY = ny; NW = nw;
+            CX = cx; CY = cy; WidthPt = widthPt;
             UpdateDisplay();
         }
 
-        public void Move(double dxNorm, double dyNorm)
+        private double DipPerPt => 96.0 / 72.0 * (Page.BaseWidth > 0 ? Page.FullWidth / Page.BaseWidth : 1);
+
+        /// <summary>Verschieben um Anzeige-DIP.</summary>
+        public void Move(double dx, double dy)
         {
-            NX = Math.Max(-NW * 0.5, Math.Min(1 - NW * 0.5, NX + dxNorm));
-            NY = Math.Max(-NH * 0.5, Math.Min(1 - NH * 0.5, NY + dyNorm));
+            if (Page.FullWidth <= 0) return;
+            CX = Math.Max(0, Math.Min(1, CX + dx / Page.FullWidth));
+            CY = Math.Max(0, Math.Min(1, CY + dy / Page.FullHeight));
             UpdateDisplay();
         }
 
-        public void Resize(double newNw)
+        /// <summary>Neue Breite in Anzeige-DIP (ungedreht).</summary>
+        public void ResizeTo(double widthDip)
         {
-            NW = Math.Max(0.03, Math.Min(1.2, newNw));
+            WidthPt = Math.Max(12, Math.Min(1200, widthDip / DipPerPt));
+            UpdateDisplay();
+        }
+
+        public void Rotate90()
+        {
+            (CX, CY) = (1 - CY, CX);
+            Angle = (Angle + 90) % 360;
+            On(nameof(AngleD));
             UpdateDisplay();
         }
 
         public void UpdateDisplay()
         {
-            Left = NX * Page.Width;
-            Top = NY * Page.Height;
-            W = NW * Page.Width;
-            H = NH * Page.Height;
+            W = WidthPt * DipPerPt;
+            H = W * Aspect;
+            BoxW = Angle % 180 == 0 ? W : H;
+            BoxH = Angle % 180 == 0 ? H : W;
+            Left = CX * Page.FullWidth - BoxW / 2;
+            Top = CY * Page.FullHeight - BoxH / 2;
+        }
+    }
+
+    /// <summary>Zuschnitt-Rahmen während der Bearbeitung (mit abgedunkeltem Rand).</summary>
+    public sealed class CropItem : Notify
+    {
+        public PageItem Page { get; }
+        public double NX, NY, NW, NH;
+        private double _l, _t, _w, _h, _fw, _fh;
+        public double Left { get => _l; private set { _l = value; On(); } }
+        public double Top { get => _t; private set { _t = value; On(); } }
+        public double W { get => _w; private set { _w = value; On(); } }
+        public double H { get => _h; private set { _h = value; On(); } }
+        public double FW { get => _fw; private set { _fw = value; On(); } }
+        public double FH { get => _fh; private set { _fh = value; On(); } }
+        public double Right => Left + W;
+        public double Bottom => Top + H;
+        public double RightW => Math.Max(0, FW - Left - W);
+        public double BottomH => Math.Max(0, FH - Top - H);
+
+        public CropItem(PageItem page, double x, double y, double w, double h) { Page = page; Set(x, y, w, h); }
+
+        public void Set(double x, double y, double w, double h)
+        {
+            NX = Math.Max(0, Math.Min(0.98, x)); NY = Math.Max(0, Math.Min(0.98, y));
+            NW = Math.Max(0.02, Math.Min(1 - NX, w)); NH = Math.Max(0.02, Math.Min(1 - NY, h));
+            UpdateDisplay();
+        }
+
+        public void UpdateDisplay()
+        {
+            FW = Page.FullWidth; FH = Page.FullHeight;
+            Left = NX * FW; Top = NY * FH; W = NW * FW; H = NH * FH;
+            On(nameof(Right)); On(nameof(Bottom)); On(nameof(RightW)); On(nameof(BottomH));
         }
     }
 
@@ -269,8 +322,8 @@ namespace KantaPdf.Services
 
         public void UpdateDisplay()
         {
-            Left = NX * Page.Width; Top = NY * Page.Height; W = NW * Page.Width; H = NH * Page.Height;
-            double z = Page.BaseWidth > 0 ? Page.Width / Page.BaseWidth : 1;
+            Left = NX * Page.FullWidth; Top = NY * Page.FullHeight; W = NW * Page.FullWidth; H = NH * Page.FullHeight;
+            double z = Page.BaseWidth > 0 ? Page.FullWidth / Page.BaseWidth : 1;
             FontSize = IsMultiline ? Math.Max(6, 13 * z) : Math.Max(6, Math.Min(H * 0.62, 15 * z));
         }
     }
@@ -308,20 +361,31 @@ namespace KantaPdf.Services
         public double Top { get => _t; private set { _t = value; On(); } }
         public double DisplaySize { get => _size; private set { _size = value; On(); } }
 
+        public int Angle;
+        public double AngleD => Angle;
+
         public TextItem(PageItem page, double nx, double ny) { Page = page; NX = nx; NY = ny; UpdateDisplay(); }
+
+        public void Rotate90()
+        {
+            (NX, NY) = (1 - NY, NX);
+            Angle = (Angle + 90) % 360;
+            On(nameof(AngleD));
+            UpdateDisplay();
+        }
 
         public void Move(double dx, double dy)
         {
-            NX = Math.Max(0, Math.Min(0.98, NX + dx));
-            NY = Math.Max(0, Math.Min(0.98, NY + dy));
+            NX = Math.Max(0, Math.Min(1, NX + dx));
+            NY = Math.Max(0, Math.Min(1, NY + dy));
             UpdateDisplay();
         }
 
         public void UpdateDisplay()
         {
-            Left = NX * Page.Width;
-            Top = NY * Page.Height;
-            double z = Page.BaseWidth > 0 ? Page.Width / Page.BaseWidth : 1;
+            Left = NX * Page.FullWidth;
+            Top = NY * Page.FullHeight;
+            double z = Page.BaseWidth > 0 ? Page.FullWidth / Page.BaseWidth : 1;
             DisplaySize = _pt * 96.0 / 72.0 * z;
         }
     }
@@ -338,12 +402,38 @@ namespace KantaPdf.Services
         public double BaseWidth => ExtraRotation % 180 == 0 ? SourceSize.Width : SourceSize.Height;
         public double BaseHeight => ExtraRotation % 180 == 0 ? SourceSize.Height : SourceSize.Width;
 
-        private double _w, _h, _tw, _th;
+        private double _w, _h, _fw, _fh, _ox, _oy, _tw, _th;
         private ImageSource _img, _thumb;
         private int _number;
+        private double _zoom = 1;
 
+        /// <summary>Sichtbarer (ggf. zugeschnittener) Bereich in Anzeige-DIP.</summary>
         public double Width { get => _w; private set { _w = value; On(); } }
         public double Height { get => _h; private set { _h = value; On(); } }
+        /// <summary>Ganze Seite in Anzeige-DIP – Bezug für alle Overlays.</summary>
+        public double FullWidth { get => _fw; private set { _fw = value; On(); } }
+        public double FullHeight { get => _fh; private set { _fh = value; On(); } }
+        public double CropOffsetX { get => _ox; private set { _ox = value; On(); } }
+        public double CropOffsetY { get => _oy; private set { _oy = value; On(); } }
+
+        /// <summary>Zuschnitt relativ zur ganzen (gedrehten) Seite. Standard: 0,0,1,1.</summary>
+        public double CropX { get; private set; }
+        public double CropY { get; private set; }
+        public double CropW { get; private set; } = 1;
+        public double CropH { get; private set; } = 1;
+        public bool IsCropped => CropX > 0.0001 || CropY > 0.0001 || CropW < 0.9999 || CropH < 0.9999;
+
+        public ObservableCollection<CropItem> CropEdit { get; } = new ObservableCollection<CropItem>();
+
+        public void SetCrop(double x, double y, double w, double h)
+        {
+            x = Math.Max(0, Math.Min(0.95, x)); y = Math.Max(0, Math.Min(0.95, y));
+            w = Math.Max(0.05, Math.Min(1 - x, w)); h = Math.Max(0.05, Math.Min(1 - y, h));
+            CropX = x; CropY = y; CropW = w; CropH = h;
+            ApplyZoom(_zoom);
+            Thumb = null; ThumbPx = 0;
+            ApplyThumbWidth(ThumbW);
+        }
         public ImageSource Image { get => _img; set { _img = value; On(); } }
         public double ThumbW { get => _tw; private set { _tw = value; On(); } }
         public double ThumbH { get => _th; private set { _th = value; On(); } }
@@ -390,6 +480,9 @@ namespace KantaPdf.Services
                 foreach (var h in Highlights) foreach (var r in h.Rects) r.Rotate90();
                 foreach (var n in Notes) { var (x, y, _, _) = Geo.Rot90(n.NX, n.NY, 0, 0); n.NX = x; n.NY = y; }
                 foreach (var f in Fields) f.Rotate90();
+                foreach (var pl in Placed) pl.Rotate90();
+                foreach (var t in Texts) t.Rotate90();
+                (CropX, CropY, CropW, CropH) = Geo.Rot90(CropX, CropY, CropW, CropH);
             }
             ExtraRotation = (ExtraRotation + delta % 360 + 360) % 360;
             Selection.Clear();
@@ -413,8 +506,14 @@ namespace KantaPdf.Services
 
         public void ApplyZoom(double zoom)
         {
-            Width = BaseWidth * zoom;
-            Height = BaseHeight * zoom;
+            _zoom = zoom;
+            FullWidth = BaseWidth * zoom;
+            FullHeight = BaseHeight * zoom;
+            Width = FullWidth * CropW;
+            Height = FullHeight * CropH;
+            CropOffsetX = -CropX * FullWidth;
+            CropOffsetY = -CropY * FullHeight;
+            foreach (var c in CropEdit) c.UpdateDisplay();
             foreach (var r in Redactions) r.UpdateDisplay();
             foreach (var r in Selection) r.UpdateDisplay();
             foreach (var h in Highlights) foreach (var r in h.Rects) r.UpdateDisplay();
@@ -428,10 +527,10 @@ namespace KantaPdf.Services
         public void ApplyThumbWidth(double w)
         {
             ThumbW = w;
-            ThumbH = w * BaseHeight / BaseWidth;
+            ThumbH = w * (BaseHeight * CropH) / (BaseWidth * CropW);
         }
 
-        public bool HasEdits => Redactions.Count > 0 || Highlights.Count > 0 || Notes.Count > 0 || Placed.Count > 0;
+        public bool HasEdits => Redactions.Count > 0 || Highlights.Count > 0 || Notes.Count > 0 || Placed.Count > 0 || Texts.Count > 0 || IsCropped;
 
         /// <summary>Drehung der Quellseite (0/90/180/270) – für Unterschriften/Stempel relevant.</summary>
         public int SourceRotation { get; set; }

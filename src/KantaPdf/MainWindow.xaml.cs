@@ -19,7 +19,7 @@ namespace KantaPdf
 {
     public partial class MainWindow : Window
     {
-        private enum Tool { Text, Marker, Note, Redact, Write }
+        private enum Tool { Text, Marker, Note, Redact, Write, Crop }
 
         // Dokument
         private readonly ObservableCollection<PageItem> _pages = new ObservableCollection<PageItem>();
@@ -89,6 +89,11 @@ namespace KantaPdf
         private double _lastTextPt = 11;
         private Color _lastTextColor = Color.FromRgb(0x11, 0x11, 0x11);
         private bool _lastTextBold;
+
+        // Zuschneiden
+        private PageItem _cropPage;
+        private (double x, double y, double w, double h) _cropPrev;
+        private bool _cropDrawing;
 
         // Fokusmodus
         private bool _focus;
@@ -641,14 +646,14 @@ namespace KantaPdf
         {
             var lbi = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
             if (lbi?.DataContext is NoteItem n)
-                ScrollToPage(n.Page, Math.Max(0, n.Top - 140));
+                ScrollToPage(n.Page, Math.Max(0, n.Top + n.Page.CropOffsetY - 140));
         }
 
         // ═════════════════════════ Darstellung ═════════════════════════
 
         private double DpiScale => VisualTreeHelper.GetDpi(this).DpiScaleX;
 
-        private int TargetPx(PageItem p) => (int)Math.Min(4200, Math.Round(p.Width * DpiScale));
+        private int TargetPx(PageItem p) => (int)Math.Min(4200, Math.Round(p.FullWidth * DpiScale));
         private int ThumbPx(PageItem p) => (int)Math.Min(1200, Math.Ceiling(p.ThumbW * DpiScale / 40.0) * 40);
 
         private void UpdateVisible()
@@ -700,6 +705,16 @@ namespace KantaPdf
             return rot;
         }
 
+        private static System.Windows.Media.Imaging.BitmapSource CropBitmap(System.Windows.Media.Imaging.BitmapSource bmp, PageItem p)
+        {
+            int x = (int)Math.Round(p.CropX * bmp.PixelWidth), y = (int)Math.Round(p.CropY * bmp.PixelHeight);
+            int w = Math.Max(1, Math.Min(bmp.PixelWidth - x, (int)Math.Round(p.CropW * bmp.PixelWidth)));
+            int h = Math.Max(1, Math.Min(bmp.PixelHeight - y, (int)Math.Round(p.CropH * bmp.PixelHeight)));
+            var c = new System.Windows.Media.Imaging.CroppedBitmap(bmp, new Int32Rect(x, y, w, h));
+            c.Freeze();
+            return c;
+        }
+
         private async Task PumpAsync()
         {
             _rendering = true;
@@ -717,7 +732,10 @@ namespace KantaPdf
                     int px = isThumb ? ThumbPx(p) : TargetPx(p);
                     try
                     {
-                        var bmp = await RenderDisplayAsync(p, px);
+                        // Vorschau: ganze Seite rendern und auf den Zuschnitt beschneiden
+                        int renderPx = isThumb && p.IsCropped ? (int)Math.Min(2000, px / Math.Max(0.05, p.CropW)) : px;
+                        var bmp = await RenderDisplayAsync(p, renderPx);
+                        if (isThumb && p.IsCropped) bmp = CropBitmap(bmp, p);
                         var shown = mode == ReadMode.Papier ? bmp : await Task.Run(() => Tint.Apply(bmp, mode));
                         if (isThumb) { p.Thumb = shown; p.ThumbPx = px; p.ThumbMode = mode; }
                         else { p.Image = shown; p.RenderedPx = px; p.RenderedMode = mode; }
@@ -823,6 +841,8 @@ namespace KantaPdf
             }
             if (e.Key == Key.Escape && _focus && !inText) { Focus_Click(null, null); e.Handled = true; return; }
             if (e.Key == Key.Escape && SearchBar.Visibility == Visibility.Visible) { SearchClose_Click(null, null); e.Handled = true; return; }
+            if (e.Key == Key.Escape && _cropPage != null) { CropCancel_Click(null, null); e.Handled = true; return; }
+            if (e.Key == Key.Enter && _cropPage != null && !inText) { CropApply_Click(null, null); e.Handled = true; return; }
             if (e.Key == Key.Escape && _pendingPng != null)
             {
                 EndPlacement();
@@ -899,14 +919,19 @@ namespace KantaPdf
 
         private void ApplyTool(Tool t)
         {
+            if (t != Tool.Crop && _cropPage != null) EndCrop(apply: false);
             _tool = t;
             _pendingPng = null;
             _pendingKind = null;
             ClearSelection();
             PageList.Cursor = t == Tool.Text || t == Tool.Marker || t == Tool.Write ? Cursors.IBeam : Cursors.Cross;
             RedactActions.Visibility = t == Tool.Redact ? Visibility.Visible : Visibility.Collapsed;
+            CropActions.Visibility = t == Tool.Crop ? Visibility.Visible : Visibility.Collapsed;
             switch (t)
             {
+                case Tool.Crop:
+                    ModeTitle.Text = "Zuschneiden:"; ModeHint.Text = "Ecken ziehen oder einen neuen Rahmen aufziehen. Alles außerhalb wird weggeschnitten.";
+                    break;
                 case Tool.Marker:
                     ModeTitle.Text = "Marker:"; ModeHint.Text = "Text mit gedrückter Maustaste überstreichen. Rechtsklick auf eine Markierung entfernt sie.";
                     break;
@@ -972,6 +997,14 @@ namespace KantaPdf
                     e.Handled = true;
                     break;
 
+                case Tool.Crop:
+                    if (page != _cropPage) { StartCrop(page); e.Handled = true; return; }
+                    _dragGrid = grid; _dragPage = page; _dragStart = p; _cropDrawing = true;
+                    page.CropEdit.FirstOrDefault()?.Set(np.X, np.Y, 0.02, 0.02);
+                    grid.CaptureMouse();
+                    e.Handled = true;
+                    break;
+
                 case Tool.Write:
                     if (Keyboard.FocusedElement is TextBox ftb && ftb.DataContext is TextItem)
                     {
@@ -979,11 +1012,6 @@ namespace KantaPdf
                         Keyboard.ClearFocus();
                         PageList.Focus();
                         e.Handled = true;
-                        return;
-                    }
-                    if (page.SourceRotation != 0 || page.ExtraRotation != 0)
-                    {
-                        ShowToast("Diese Seite ist gedreht – dort kann noch kein Text eingefügt werden.", null, null);
                         return;
                     }
                     double off = 8.0 / Math.Max(1, grid.ActualHeight);
@@ -1006,6 +1034,15 @@ namespace KantaPdf
         {
             if (_dragGrid == null || _dragPage == null) return;
             var p = e.GetPosition(_dragGrid);
+
+            if (_tool == Tool.Crop && _cropDrawing)
+            {
+                var a0 = Norm(_dragGrid, _dragStart);
+                var b0 = Norm(_dragGrid, p);
+                _dragPage.CropEdit.FirstOrDefault()?.Set(Math.Min(a0.X, b0.X), Math.Min(a0.Y, b0.Y),
+                    Math.Max(0.02, Math.Abs(b0.X - a0.X)), Math.Max(0.02, Math.Abs(b0.Y - a0.Y)));
+                return;
+            }
 
             if (_tool == Tool.Redact && _dragBox != null)
             {
@@ -1036,6 +1073,8 @@ namespace KantaPdf
             if (_dragGrid == null) return;
             _dragGrid.ReleaseMouseCapture();
             var page = _dragPage;
+
+            if (_tool == Tool.Crop) _cropDrawing = false;
 
             if (_tool == Tool.Redact && _dragBox != null)
             {
@@ -1176,6 +1215,10 @@ namespace KantaPdf
                 OpenNoteEditor(note, grid, new Rect(p.X, p.Y, 26, 26), isNew: true);
             }));
             menu.Items.Add(MenuItemFor("Ganze Seite markieren", "Strg+A", () => _ = SelectAllOnPageAsync(page)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItemFor("Seite nach rechts drehen", "Strg+R", () => RotatePages(new List<PageItem> { page }, 90)));
+            menu.Items.Add(MenuItemFor("Seite nach links drehen", "Strg+Umschalt+R", () => RotatePages(new List<PageItem> { page }, -90)));
+            menu.Items.Add(MenuItemFor("Seite zuschneiden …", null, () => StartCrop(page)));
             menu.IsOpen = true;
             e.Handled = true;
         }
@@ -1277,6 +1320,7 @@ namespace KantaPdf
             _pendingKind = kind;
             PageList.Cursor = Cursors.Cross;
             RedactActions.Visibility = Visibility.Collapsed;
+            CropActions.Visibility = Visibility.Collapsed;
             MarkerColors.Visibility = Visibility.Collapsed;
             ModeTitle.Text = kind + ":";
             ModeHint.Text = "Auf die Stelle klicken, an der sie stehen soll. Danach verschieben oder an der grünen Ecke größer ziehen. Esc bricht ab.";
@@ -1293,17 +1337,9 @@ namespace KantaPdf
 
         private void PlacePending(PageItem page, Point np)
         {
-            if (page.SourceRotation != 0 || page.ExtraRotation != 0)
-            {
-                ShowToast("Diese Seite ist im PDF gedreht – dort kann noch nicht unterschrieben/gestempelt werden.", null, null);
-                return;
-            }
-            double nw = _pendingKind == "Unterschrift" ? 0.28 : 0.24;
-            var item = new PlacedItem(page, _pendingPng, _pendingKind, 0, 0, nw);
-            item.NX = np.X - nw / 2;
-            item.NY = np.Y - item.NH / 2;
-            item.Move(0, 0);
-            item.IsSelected = true;
+            double frac = _pendingKind == "Unterschrift" ? 0.28 : 0.24;
+            double widthPt = Math.Min(page.BaseWidth, page.BaseHeight) * 0.75 * frac; // Anteil der kürzeren Seitenkante, in pt
+            var item = new PlacedItem(page, _pendingPng, _pendingKind, np.X, np.Y, widthPt) { IsSelected = true };
             page.Placed.Add(item);
             SetDirty(true);
             EndPlacement();
@@ -1328,14 +1364,17 @@ namespace KantaPdf
 
         private void Placed_Move(object sender, DragDeltaEventArgs e)
         {
-            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item) || item.Page.Width <= 0) return;
-            item.Move(e.HorizontalChange / item.Page.Width, e.VerticalChange / item.Page.Height);
+            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item)) return;
+            // Thumb liegt im gedrehten Element → Bewegung in Anzeige-Richtung umrechnen
+            double dx = e.HorizontalChange, dy = e.VerticalChange;
+            for (int i = 0; i < item.Angle / 90; i++) (dx, dy) = (-dy, dx);
+            item.Move(dx, dy);
         }
 
         private void Placed_Resize(object sender, DragDeltaEventArgs e)
         {
-            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item) || item.Page.Width <= 0) return;
-            item.Resize((item.W + e.HorizontalChange) / item.Page.Width);
+            if (!((sender as FrameworkElement)?.DataContext is PlacedItem item)) return;
+            item.ResizeTo(item.W + e.HorizontalChange);
         }
 
         private void Placed_DragCompleted(object sender, DragCompletedEventArgs e) => SetDirty(true);
@@ -1563,6 +1602,7 @@ namespace KantaPdf
 
         private void CloseDocument()
         {
+            if (_cropPage != null) EndCrop(apply: false);
             CloseNotePopup();
             ClearSelection();
             SearchClose_Click(null, null);
@@ -1682,12 +1722,6 @@ namespace KantaPdf
         {
             var list = pages.Where(p => p != null).Distinct().ToList();
             if (list.Count == 0) return;
-            if (list.Any(p => p.Placed.Count > 0 || p.Texts.Count > 0))
-            {
-                ShowToast("Seiten mit Unterschrift, Stempel oder eingefügtem Text können (noch) nicht gedreht werden.", null, null);
-                list = list.Where(p => p.Placed.Count == 0 && p.Texts.Count == 0).ToList();
-                if (list.Count == 0) return;
-            }
             if (list.Contains(_selPage)) ClearSelection();
             foreach (var p in list)
             {
@@ -1719,6 +1753,7 @@ namespace KantaPdf
             var menu = new ContextMenu { PlacementTarget = lbi };
             menu.Items.Add(MenuItemFor($"{n} nach rechts drehen", "Strg+R", () => RotatePages(sel, 90)));
             menu.Items.Add(MenuItemFor($"{n} nach links drehen", "Strg+Umschalt+R", () => RotatePages(sel, -90)));
+            menu.Items.Add(MenuItemFor("Seite zuschneiden …", null, () => StartCrop(page)));
             menu.Items.Add(new Separator());
             menu.Items.Add(MenuItemFor($"{n} als eigene PDF speichern …", null, () => _ = ExtractAsync(sel)));
             menu.Items.Add(MenuItemFor("Datei hier einfügen …", null, () => AppendDialog(_pages.IndexOf(sel.Last()) + 1)));
@@ -1748,6 +1783,103 @@ namespace KantaPdf
                     "Öffnen", () => _ = OpenFilesAsync(new[] { dlg.FileName }, -1), dlg.FileName);
             }
             catch (Exception ex) { ShowError("Speichern hat nicht geklappt.", ex); }
+        }
+
+        // ═════════════════════════ Zuschneiden ═════════════════════════
+
+        private void MenuRotate_Click(object sender, RoutedEventArgs e)
+        {
+            CloseToolsMenu();
+            if (_pages.Count == 0) return;
+            var sel = ThumbList.SelectedItems.Cast<PageItem>().ToList();
+            RotatePages(sel.Count > 1 ? sel : new List<PageItem> { _pages[_currentIndex] }, 90);
+        }
+
+        private void MenuCrop_Click(object sender, RoutedEventArgs e)
+        {
+            CloseToolsMenu();
+            if (_pages.Count > 0) StartCrop(_pages[_currentIndex]);
+        }
+
+        private void StartCrop(PageItem page)
+        {
+            if (_cropPage != null) EndCrop(apply: false);
+            ClearSelection();
+            _cropPage = page;
+            _cropPrev = (page.CropX, page.CropY, page.CropW, page.CropH);
+            var start = page.IsCropped ? _cropPrev : (0.05, 0.05, 0.9, 0.9);
+            page.SetCrop(0, 0, 1, 1);           // zum Bearbeiten die ganze Seite zeigen
+            page.CropEdit.Clear();
+            page.CropEdit.Add(new CropItem(page, start.Item1, start.Item2, start.Item3, start.Item4));
+            ApplyTool(Tool.Crop);
+            Kick();
+            Dispatcher.BeginInvoke(new Action(() => ScrollToPage(page, 0)), DispatcherPriority.Loaded);
+        }
+
+        private void EndCrop(bool apply, bool reset = false)
+        {
+            var page = _cropPage;
+            if (page == null) return;
+            _cropPage = null;
+            var edit = page.CropEdit.FirstOrDefault();
+            page.CropEdit.Clear();
+
+            if (reset)
+            {
+                var targets = CropAll.IsChecked == true ? _pages.ToList() : new List<PageItem> { page };
+                foreach (var p in targets) p.SetCrop(0, 0, 1, 1);
+                SetDirty(true);
+                ShowToast("Zuschnitt entfernt.", null, null);
+            }
+            else if (apply && edit != null)
+            {
+                var targets = CropAll.IsChecked == true ? _pages.ToList() : new List<PageItem> { page };
+                foreach (var p in targets) p.SetCrop(edit.NX, edit.NY, edit.NW, edit.NH);
+                SetDirty(true);
+                ShowToast(targets.Count == 1 ? "Seite zugeschnitten." : $"{targets.Count} Seiten zugeschnitten.", null, null);
+            }
+            else
+            {
+                page.SetCrop(_cropPrev.x, _cropPrev.y, _cropPrev.w, _cropPrev.h);
+            }
+            CropAll.IsChecked = false;
+            ApplyThumbWidths();
+            Kick();
+        }
+
+        private void CropApply_Click(object sender, RoutedEventArgs e) { EndCrop(apply: true); SelectTool(Tool.Text); }
+        private void CropCancel_Click(object sender, RoutedEventArgs e) { EndCrop(apply: false); SelectTool(Tool.Text); }
+        private void CropReset_Click(object sender, RoutedEventArgs e) { EndCrop(apply: false, reset: true); SelectTool(Tool.Text); }
+
+        private void Crop_Drag(object sender, DragDeltaEventArgs e)
+        {
+            if (!(sender is FrameworkElement fe) || !(fe.DataContext is CropItem c) || c.FW <= 0) return;
+            double dx = e.HorizontalChange / c.FW, dy = e.VerticalChange / c.FH;
+            double x = c.NX, y = c.NY, w = c.NW, h = c.NH;
+            switch (fe.Tag as string)
+            {
+                case "move":
+                    x = Math.Max(0, Math.Min(1 - w, x + dx));
+                    y = Math.Max(0, Math.Min(1 - h, y + dy));
+                    break;
+                case "tl":
+                    dx = Math.Min(dx, w - 0.03); dy = Math.Min(dy, h - 0.03);
+                    dx = Math.Max(dx, -x); dy = Math.Max(dy, -y);
+                    x += dx; y += dy; w -= dx; h -= dy;
+                    break;
+                case "tr":
+                    dy = Math.Min(dy, h - 0.03); dy = Math.Max(dy, -y);
+                    y += dy; h -= dy; w = Math.Max(0.03, Math.Min(1 - x, w + dx));
+                    break;
+                case "bl":
+                    dx = Math.Min(dx, w - 0.03); dx = Math.Max(dx, -x);
+                    x += dx; w -= dx; h = Math.Max(0.03, Math.Min(1 - y, h + dy));
+                    break;
+                case "br":
+                    w = Math.Max(0.03, Math.Min(1 - x, w + dx)); h = Math.Max(0.03, Math.Min(1 - y, h + dy));
+                    break;
+            }
+            c.Set(x, y, w, h);
         }
 
         // ═════════════════════════ Suchen ═════════════════════════
@@ -1848,7 +1980,7 @@ namespace KantaPdf
             var hit = _hits[_hitIndex];
             hit.IsCurrent = true;
             SearchInfo.Text = $"{_hitIndex + 1} / {_hits.Count}";
-            ScrollToPage(hit.Page, Math.Max(0, hit.Top - 160));
+            ScrollToPage(hit.Page, Math.Max(0, hit.Top + hit.Page.CropOffsetY - 160));
         }
 
         // ═════════════════════════ Drucken ═════════════════════════
@@ -1907,15 +2039,24 @@ namespace KantaPdf
                     foreach (var r in hl.Rects) dc.DrawRectangle(b, null, new Rect(r.NX * w, r.NY * h, r.NW * w, r.NH * h));
                 }
                 foreach (var r in p.Redactions) dc.DrawRectangle(Brushes.Black, null, new Rect(r.NX * w, r.NY * h, r.NW * w, r.NH * h));
-                foreach (var pl in p.Placed) dc.DrawImage(pl.Image, new Rect(pl.NX * w, pl.NY * h, pl.NW * w, pl.NH * h));
                 double k = w / Math.Max(1, p.BaseWidth); // Pixel pro DIP
+                foreach (var pl in p.Placed)
+                {
+                    double cx = pl.CX * w, cy = pl.CY * h, iw = pl.WidthPt * 96.0 / 72.0 * k, ih = iw * pl.Aspect;
+                    dc.PushTransform(new RotateTransform(pl.Angle, cx, cy));
+                    dc.DrawImage(pl.Image, new Rect(cx - iw / 2, cy - ih / 2, iw, ih));
+                    dc.Pop();
+                }
                 var arial = new Typeface("Arial");
                 foreach (var t in p.Texts.Where(x => !string.IsNullOrWhiteSpace(x.Text)))
                 {
                     var tf = new Typeface(new FontFamily("Arial"), FontStyles.Normal, t.Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
                     var ft = new FormattedText(t.Text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
                         tf, t.FontPt * 96.0 / 72.0 * k, t.Brush, 1.0);
-                    dc.DrawText(ft, new Point(t.NX * w + 3 * k, t.NY * h + 2 * k));
+                    double ax = t.NX * w, ay = t.NY * h;
+                    dc.PushTransform(new RotateTransform(t.Angle, ax, ay));
+                    dc.DrawText(ft, new Point(ax + 3 * k, ay + 2 * k));
+                    dc.Pop();
                 }
                 foreach (var f in p.Fields.Where(x => x.Changed))
                 {
@@ -1943,7 +2084,8 @@ namespace KantaPdf
             }
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)w, (int)h, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
-            var flat = new System.Windows.Media.Imaging.FormatConvertedBitmap(rtb, PixelFormats.Bgr24, null, 0);
+            System.Windows.Media.Imaging.BitmapSource printed = p.IsCropped ? CropBitmap(rtb, p) : rtb;
+            var flat = new System.Windows.Media.Imaging.FormatConvertedBitmap(printed, PixelFormats.Bgr24, null, 0);
             var enc = new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 88 };
             enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(flat));
             using var ms = new MemoryStream();
@@ -2030,8 +2172,8 @@ namespace KantaPdf
         private void TextItem_Move(object sender, DragDeltaEventArgs e)
         {
             var t = TextItemOf(sender);
-            if (t == null || t.Page.Width <= 0) return;
-            t.Move(e.HorizontalChange / t.Page.Width, e.VerticalChange / t.Page.Height);
+            if (t == null || t.Page.FullWidth <= 0) return;
+            t.Move(e.HorizontalChange / t.Page.FullWidth, e.VerticalChange / t.Page.FullHeight);
         }
 
         private void TextSmaller_Click(object sender, RoutedEventArgs e)

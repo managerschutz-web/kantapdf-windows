@@ -123,6 +123,10 @@
       </Style.Triggers>
     </Style>
 
+    <ControlTemplate x:Key="CropHandle" TargetType="Thumb">
+      <Ellipse Fill="White" Stroke="{DynamicResource Accent}" StrokeThickness="2.5"/>
+    </ControlTemplate>
+
     <!-- Segment-Schalter (Werkzeuge, Reiter) -->
     <Style x:Key="Seg" TargetType="RadioButton">
       <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
