@@ -1120,6 +1120,12 @@ namespace KantaPdf
             else AppendDialog(_pages.Count);
         }
 
+        private void Setup_Click(object sender, RoutedEventArgs e)
+        {
+            CloseToolsMenu();
+            AppSetup.Ask(this);
+        }
+
         private async void Ocr_Click(object sender, RoutedEventArgs e)
         {
             CloseToolsMenu();

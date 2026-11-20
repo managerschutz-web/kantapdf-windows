@@ -152,6 +152,13 @@
                     <StackPanel Grid.Column="1"><TextBlock Text="Kennwort" FontWeight="SemiBold"/>
                       <TextBlock Text="Schutz setzen oder entfernen" Style="{StaticResource Hint}"/></StackPanel></Grid>
                 </Button>
+                <Border Height="1" Background="{DynamicResource Line}" Margin="8,4"/>
+                <Button Style="{StaticResource MenuBtn}" Click="Setup_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE7F4;" Foreground="{DynamicResource Muted}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Einrichten" FontWeight="SemiBold"/>
+                      <TextBlock Text="Desktop-Verknüpfung, Startmenü, „Öffnen mit“" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
               </StackPanel>
             </Border>
           </Popup>

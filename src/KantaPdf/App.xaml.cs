@@ -22,6 +22,9 @@ namespace KantaPdf
             // „Öffnen mit KANTApdf“ bzw. Doppelklick: Pfad kommt als Argument
             if (e.Args.Length > 0)
                 _ = win.OpenAsync(e.Args[0]);
+
+            // Beim ersten Start: Desktop-Verknüpfung & Co. anbieten
+            Dispatcher.BeginInvoke(new Action(() => Services.AppSetup.FirstStart(win)), DispatcherPriority.ContextIdle);
         }
 
         private void OnUnhandled(object sender, DispatcherUnhandledExceptionEventArgs e)

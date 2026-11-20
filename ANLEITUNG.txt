@@ -1,49 +1,59 @@
-KANTApdf für Windows – v0.1.0
+KANTApdf für Windows – v0.2.0
 =============================
 Made with ♥ in Ummaschumm
 
-WAS ES KANN
-- Ruhig lesen: Papier, Sepia, Nacht (Knopf rechts oben, wird gemerkt)
+DOWNLOAD (immer die neueste Version, ohne Anmeldung)
+https://github.com/managerschutz-web/kantapdf-windows/releases/latest/download/KANTApdf.exe
+
+ERSTER START
+- SmartScreen warnt („Unbekannter Herausgeber“) → „Weitere Informationen“ → „Trotzdem ausführen“.
+- KANTApdf fragt einmal, ob es eingerichtet werden soll:
+  Desktop-Verknüpfung, Startmenü, „Öffnen mit“ bei PDFs. Kopiert sich dafür nach
+  %LOCALAPPDATA%\Programs\KANTApdf (nur für dich, ohne Admin-Rechte).
+  Später jederzeit: Werkzeuge → Einrichten.
+- Als Standard für PDFs: Rechtsklick auf eine PDF → Öffnen mit → KANTApdf → „Immer“.
+
+LESEN
+- Ansicht Papier / Sepia / Nacht (rechts oben, wird gemerkt)
 - Zoom: Strg + Mausrad, Strg +/−, Strg+0 = auf Breite einpassen
-- Öffnen: Knopf, Strg+O, Datei ins Fenster ziehen oder „Öffnen mit KANTApdf“
-- OCR: gescannte PDFs durchsuchbar machen (Windows-Texterkennung, offline)
-- Zusammenfügen: mehrere PDFs, Reihenfolge per Liste (auch: mehrere PDFs ins Fenster ziehen)
-- Teilen: jede Seite einzeln, nach Bereichen („1-3, 4-6, 7-“) oder alle N Seiten
-- Verkleinern: Leicht / Mittel / Stark – Text bleibt durchsuchbar
-- Schwärzen: Balken aufziehen → Seiten mit Balken werden als Bild neu aufgebaut,
-  darunter ist garantiert nichts mehr lesbar (diese Seiten danach ggf. per OCR wieder durchsuchbar machen)
-- Kennwort: Öffnen-Kennwort setzen (AES-256) inkl. Rechte, oder Schutz entfernen
-- Geschützte PDFs fragen beim Öffnen nach dem Kennwort
-Alle Werkzeuge speichern IMMER als neue Datei – das Original bleibt unangetastet.
+- Seitenleiste links: Vorschau aller Seiten, Breite per Ziehen am Rand, ☰ blendet sie aus
+- Reiter „Notizen“ listet alle Notizen – Klick springt hin
 
-SO WIRD DIE EXE GEBAUT (ohne eigenen PC-Entwicklungskram)
-1. Auf github.com ein neues privates Repository anlegen, z. B. „kantapdf-windows“.
-2. Den Inhalt dieses ZIPs hochladen – mit Ordnerstruktur
-   (.github/workflows/build.yml, src/KantaPdf/…, ANLEITUNG.txt).
-3. GitHub baut automatisch: Reiter „Actions“ → „KANTApdf bauen“ → nach ca. 3 Min. grüner Haken.
-4. Unten bei „Artifacts“ → „KANTApdf“ herunterladen → darin liegt KANTApdf.exe.
-5. EXE irgendwo ablegen (z. B. C:\Tools\KANTApdf\) und starten. .NET muss NICHT installiert sein.
+SEITEN
+- Seite löschen: Papierkorb auf der Vorschau oder Entf (mehrere mit Strg/Umschalt auswählen)
+- Rückgängig: Strg+Z
 
-ALS STANDARD FÜR PDFs EINRICHTEN
-Rechtsklick auf eine PDF → Öffnen mit → Andere App auswählen → „Weitere Apps“ →
-„Andere App auf diesem PC suchen“ → KANTApdf.exe → „Immer“.
+ZUSAMMENFÜGEN – so einfach wie möglich
+- Mehrere PDFs auf einmal öffnen oder ins leere Fenster ziehen → ein Dokument
+- PDF ins offene Dokument ziehen → wird hinten angehängt
+- PDF auf eine Seitenvorschau ziehen → wird genau dort eingefügt (obere Hälfte davor, untere dahinter)
+- „PDF anhängen“ unten in der Leiste
+- Danach: Speichern
 
-HINWEISE
-- Windows SmartScreen warnt beim ersten Start („Unbekannter Herausgeber“), weil die EXE
-  nicht signiert ist → „Weitere Informationen“ → „Trotzdem ausführen“.
-  Für den Team-Einsatz am besten mit der IT absprechen oder die EXE signieren lassen.
-- OCR braucht das deutsche OCR-Paket von Windows (bei deutschem Windows meist schon da).
-  Falls nicht: Einstellungen → Zeit und Sprache → Sprache und Region → Deutsch →
-  Sprachoptionen → „Optische Zeichenerkennung“.
-- OCR überspringt gedrehte Seiten (Seitendrehung im PDF) – kommt in einer späteren Version.
-- Kennwortschutz entfernen übernimmt Seiten in ein neues PDF; Lesezeichen gehen dabei verloren.
+TEXT, MARKER, NOTIZEN (Schalter oben in der Mitte)
+- Text: mit der Maus überstreichen → Strg+C kopiert; Doppelklick = Wort; Strg+A = ganze Seite; Rechtsklick = Menü
+- Marker: Text überstreichen → gelb hervorgehoben; Rechtsklick auf Markierung → entfernen
+- Notiz: auf eine Stelle klicken und tippen; leere Notiz verschwindet; Papierkorb im Notizfenster löscht
+- Schwärzen: Balken aufziehen → „Schwärzen & speichern unter“; betroffene Seiten werden als Bild neu
+  aufgebaut, darunter ist garantiert nichts mehr lesbar
+- Marker und Notizen werden als echte PDF-Kommentare gespeichert (auch in Acrobat/Edge sichtbar)
+- Gescannte Seiten haben keinen Text → erst OCR (Werkzeuge)
+
+SPEICHERN
+- Strg+S speichert (Punkt am Speichern-Knopf = ungespeicherte Änderungen), Strg+Umschalt+S = Speichern unter
+- Geschützte Dateien und Schwärzungen speichern immer unter neuem Namen
+
+WERKZEUGE (Menü rechts oben)
+- Zusammenfügen, Teilen, OCR, Verkleinern, Kennwort, Einrichten
+
+BEKANNTE GRENZEN (v0.2)
+- Bereits vorhandene Kommentare in fremden PDFs werden angezeigt, sind aber (noch) nicht bearbeitbar
+- Formularfelder können beim Zusammenfügen/Speichern verloren gehen
+- OCR überspringt im PDF gedrehte Seiten
+- Kennwortschutz entfernen: Lesezeichen gehen verloren
 
 TECHNIK
-- C# / .NET 8 / WPF, eine selbstständige EXE (win-x64)
-- Darstellung: Windows.Data.Pdf (in Windows eingebaut)
-- OCR: Windows.Media.Ocr (in Windows eingebaut)
-- Bearbeitung: PDFsharp 6.1.1 (MIT-Lizenz) – keine AGPL-Bibliotheken
-
-STATUS
-Nicht kompiliert und nicht unter Windows getestet (hier gibt es kein Windows/.NET).
-Falls der GitHub-Build rot wird: den Fehlertext aus „Actions“ schicken, dann wird nachgebessert.
+C# / .NET 8 / WPF, eine selbstständige EXE (win-x64).
+Darstellung Windows.Data.Pdf, OCR Windows.Media.Ocr (beides in Windows eingebaut),
+Bearbeitung PDFsharp (MIT), Textschicht PdfPig (Apache 2.0). Keine AGPL-Bibliotheken.
+Build automatisch per GitHub Actions bei jeder Änderung.
