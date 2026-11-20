@@ -12,7 +12,7 @@ namespace KantaPdf.Services
 {
     /// <summary>
     /// Darstellung über die in Windows 10/11 eingebaute PDF-Engine (Windows.Data.Pdf).
-    /// Die Datei wird komplett in den Speicher geladen → keine Dateisperre auf dem Original.
+    /// Arbeitet auf den Bytes im Speicher → keine Dateisperre auf dem Original.
     /// </summary>
     public sealed class PdfView
     {
@@ -46,6 +46,11 @@ namespace KantaPdf.Services
         public static async Task<PdfView> OpenAsync(string path, string password = null)
         {
             var bytes = await File.ReadAllBytesAsync(path);
+            return await FromBytesAsync(path, password, bytes);
+        }
+
+        public static async Task<PdfView> FromBytesAsync(string path, string password, byte[] bytes)
+        {
             var ras = new InMemoryRandomAccessStream();
             using (var writer = new DataWriter(ras))
             {

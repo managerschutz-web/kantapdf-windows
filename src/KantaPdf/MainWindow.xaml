@@ -1,12 +1,12 @@
 <Window x:Class="KantaPdf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="KANTApdf" Width="1280" Height="880" MinWidth="900" MinHeight="520"
+        Title="KANTApdf" Width="1320" Height="900" MinWidth="980" MinHeight="560"
         Icon="Assets/kanta.ico"
         Background="{DynamicResource Bg}" Foreground="{DynamicResource Ink}"
         FontFamily="{StaticResource UiFont}" FontSize="13"
         WindowStartupLocation="CenterScreen" AllowDrop="True"
-        Drop="Window_Drop" DragOver="Window_DragOver"
+        Drop="Window_Drop" DragOver="Window_DragOver" Closing="Window_Closing"
         PreviewMouseWheel="Window_PreviewMouseWheel" PreviewKeyDown="Window_PreviewKeyDown">
   <Grid>
     <Grid.RowDefinitions>
@@ -16,8 +16,8 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- ───────── Kopfleiste ───────── -->
-    <Border Background="{DynamicResource Bar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,7">
+    <!-- ═════════ Kopfleiste ═════════ -->
+    <Border Background="{DynamicResource Bar}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="10,8">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*"/>
@@ -25,127 +25,486 @@
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
+        <!-- links: Marke, Leiste, Öffnen, Speichern -->
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Margin="4,0,14,0" VerticalAlignment="Center" FontSize="15">
+          <Image Source="Assets/kanta.png" Width="26" Height="26" Margin="4,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock VerticalAlignment="Center" FontSize="15" Margin="0,0,12,0">
             <Run Text="KANTA" FontWeight="Bold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" Foreground="{DynamicResource Muted}"/>
           </TextBlock>
-          <Button Content="Öffnen" Click="Open_Click" ToolTip="PDF öffnen (Strg+O)"/>
+          <Button x:Name="BtnSidebar" Click="SidebarToggle_Click" ToolTip="Seitenleiste ein-/ausblenden" Padding="8,6">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE700;"/>
+          </Button>
+          <Button Click="Open_Click" ToolTip="PDF öffnen (Strg+O)">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Ico}" Text="&#xE8E5;" Margin="0,0,7,0"/>
+              <TextBlock Text="Öffnen"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="BtnSave" Click="Save_Click" ToolTip="Speichern (Strg+S) · Speichern unter (Strg+Umschalt+S)">
+            <StackPanel Orientation="Horizontal">
+              <Grid Margin="0,0,7,0">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE74E;"/>
+                <Ellipse x:Name="DirtyDot" Width="7" Height="7" Fill="{DynamicResource Accent}"
+                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-3,-4,0" Visibility="Collapsed"/>
+              </Grid>
+              <TextBlock Text="Speichern"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="BtnSaveAs" Click="SaveAs_Click" ToolTip="Speichern unter …" Padding="8,6">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE792;"/>
+          </Button>
           <TextBlock x:Name="FileName" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"
-                     Margin="10,0" TextTrimming="CharacterEllipsis" MaxWidth="300"/>
+                     Margin="10,0" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
         </StackPanel>
 
-        <TextBlock x:Name="PageInfo" Grid.Column="1" Foreground="{DynamicResource Muted}" VerticalAlignment="Center"/>
+        <!-- Mitte: Werkzeug-Schalter -->
+        <Border x:Name="ToolPill" Grid.Column="1" Background="{DynamicResource Pill}" CornerRadius="10" Padding="3" VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal">
+            <RadioButton x:Name="ToolText" Style="{StaticResource Seg}" GroupName="tool" IsChecked="True" Checked="Tool_Checked"
+                         ToolTip="Text markieren und kopieren (Strg+C)">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE8D2;" FontSize="14" Margin="0,0,6,0"/>
+                <TextBlock Text="Text"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="ToolMarker" Style="{StaticResource Seg}" GroupName="tool" Checked="Tool_Checked"
+                         ToolTip="Text mit Textmarker hervorheben">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE7E6;" FontSize="14" Margin="0,0,6,0"/>
+                <TextBlock Text="Marker"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="ToolNote" Style="{StaticResource Seg}" GroupName="tool" Checked="Tool_Checked"
+                         ToolTip="Notiz an eine Stelle heften">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE90A;" FontSize="14" Margin="0,0,6,0"/>
+                <TextBlock Text="Notiz"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="ToolRedact" Style="{StaticResource Seg}" GroupName="tool" Checked="Tool_Checked"
+                         ToolTip="Bereiche endgültig schwärzen">
+              <StackPanel Orientation="Horizontal">
+                <Border Width="13" Height="8" CornerRadius="1.5" Background="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                <TextBlock Text="Schwärzen"/>
+              </StackPanel>
+            </RadioButton>
+          </StackPanel>
+        </Border>
 
-        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
-          <Button x:Name="BtnOcr" Style="{StaticResource Tool}" Content="OCR" Click="Ocr_Click" ToolTip="Gescannte PDF durchsuchbar machen"/>
-          <Button Style="{StaticResource Tool}" Content="Zusammenfügen" Click="Merge_Click" ToolTip="Mehrere PDFs zu einer verbinden"/>
-          <Button x:Name="BtnSplit" Style="{StaticResource Tool}" Content="Teilen" Click="Split_Click" ToolTip="PDF in mehrere Dateien aufteilen"/>
-          <Button x:Name="BtnCompress" Style="{StaticResource Tool}" Content="Verkleinern" Click="Compress_Click" ToolTip="Dateigröße reduzieren"/>
-          <Button x:Name="BtnRedact" Style="{StaticResource Tool}" Content="Schwärzen" Click="Redact_Click" ToolTip="Bereiche endgültig unkenntlich machen"/>
-          <Button x:Name="BtnProtect" Style="{StaticResource Tool}" Content="Kennwort" Click="Protect_Click" ToolTip="Kennwortschutz setzen oder entfernen"/>
-          <Border Width="1" Background="{DynamicResource Line}" Margin="8,4"/>
-          <Button Content="−" Click="ZoomOut_Click" Padding="11,6" ToolTip="Verkleinern (Strg+Minus)"/>
-          <Button x:Name="ZoomText" Content="100 %" Click="Fit_Click" MinWidth="60" ToolTip="Auf Breite einpassen (Strg+0)"/>
-          <Button Content="+" Click="ZoomIn_Click" Padding="11,6" ToolTip="Vergrößern (Strg+Plus)"/>
-          <Border Width="1" Background="{DynamicResource Line}" Margin="8,4"/>
-          <Button x:Name="BtnMode" Content="Papier" Click="Mode_Click" MinWidth="70" ToolTip="Ansicht: Papier · Sepia · Nacht"/>
+        <!-- rechts: Werkzeuge, Zoom, Ansicht -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <ToggleButton x:Name="ToolsToggle" Cursor="Hand" FocusVisualStyle="{x:Null}" Margin="2,0">
+            <ToggleButton.Template>
+              <ControlTemplate TargetType="ToggleButton">
+                <Border x:Name="b" CornerRadius="8" Padding="11,6" Background="Transparent">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE90F;" Margin="0,0,7,0" Foreground="{DynamicResource Accent}"/>
+                    <TextBlock Text="Werkzeuge" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE70D;" FontSize="10" Margin="7,1,0,0" Foreground="{DynamicResource Accent}"/>
+                  </StackPanel>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                  </Trigger>
+                  <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="b" Property="Background" Value="{DynamicResource AccentSoft}"/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </ToggleButton.Template>
+          </ToggleButton>
+          <Popup IsOpen="{Binding IsChecked, ElementName=ToolsToggle, Mode=TwoWay}" PlacementTarget="{Binding ElementName=ToolsToggle}"
+                 Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" HorizontalOffset="-150" VerticalOffset="6">
+            <Border Background="{DynamicResource Bar}" CornerRadius="12" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                    Padding="6" Margin="12" Width="300">
+              <Border.Effect>
+                <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.18"/>
+              </Border.Effect>
+              <StackPanel>
+                <Button Style="{StaticResource MenuBtn}" Click="Merge_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE8F1;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Zusammenfügen" FontWeight="SemiBold"/>
+                      <TextBlock Text="Mehrere PDFs zu einer verbinden" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
+                <Button x:Name="MenuSplit" Style="{StaticResource MenuBtn}" Click="Split_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE8C6;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Teilen" FontWeight="SemiBold"/>
+                      <TextBlock Text="In mehrere Dateien aufteilen" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
+                <Button x:Name="MenuOcr" Style="{StaticResource MenuBtn}" Click="Ocr_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE8FE;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="OCR – durchsuchbar machen" FontWeight="SemiBold"/>
+                      <TextBlock Text="Scans werden markier- und kopierbar" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
+                <Button x:Name="MenuCompress" Style="{StaticResource MenuBtn}" Click="Compress_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE73F;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Verkleinern" FontWeight="SemiBold"/>
+                      <TextBlock Text="Dateigröße reduzieren, Text bleibt" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
+                <Button x:Name="MenuProtect" Style="{StaticResource MenuBtn}" Click="Protect_Click">
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource Ico}" Text="&#xE72E;" Foreground="{DynamicResource Accent}" FontSize="17"/>
+                    <StackPanel Grid.Column="1"><TextBlock Text="Kennwort" FontWeight="SemiBold"/>
+                      <TextBlock Text="Schutz setzen oder entfernen" Style="{StaticResource Hint}"/></StackPanel></Grid>
+                </Button>
+              </StackPanel>
+            </Border>
+          </Popup>
+
+          <Border Background="{DynamicResource Pill}" CornerRadius="10" Padding="2" Margin="8,0,0,0">
+            <StackPanel Orientation="Horizontal">
+              <Button Click="ZoomOut_Click" Padding="9,5" ToolTip="Verkleinern (Strg+Minus)">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE71F;" FontSize="13"/>
+              </Button>
+              <Button x:Name="ZoomText" Content="100 %" Click="Fit_Click" MinWidth="58" Padding="6,5" ToolTip="Auf Breite einpassen (Strg+0)"/>
+              <Button Click="ZoomIn_Click" Padding="9,5" ToolTip="Vergrößern (Strg+Plus)">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE8A3;" FontSize="13"/>
+              </Button>
+            </StackPanel>
+          </Border>
+          <Button x:Name="BtnMode" Click="Mode_Click" Margin="6,0,0,0" ToolTip="Ansicht: Papier · Sepia · Nacht">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Ico}" Text="&#xE706;" Margin="0,0,6,0"/>
+              <TextBlock x:Name="ModeText" Text="Papier"/>
+            </StackPanel>
+          </Button>
         </StackPanel>
       </Grid>
     </Border>
 
-    <!-- ───────── Schwärzen-Leiste ───────── -->
-    <Border x:Name="RedactBar" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource AccentSoft}"
+    <!-- ═════════ Hinweisleiste je Werkzeug ═════════ -->
+    <Border x:Name="ModeBar" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource AccentSoft}"
             BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="16,7">
       <DockPanel>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-          <Button Content="Alle entfernen" Click="RedactClear_Click"/>
-          <Button Content="Beenden" Click="RedactExit_Click"/>
-          <Button x:Name="BtnRedactApply" Style="{StaticResource Primary}" Content="Schwärzen &amp; speichern" Click="RedactApply_Click" Margin="6,0,0,0"/>
+        <StackPanel x:Name="RedactActions" DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button Content="Alle Balken entfernen" Click="RedactClear_Click"/>
+          <Button x:Name="BtnRedactApply" Style="{StaticResource Primary}" Content="Schwärzen &amp; speichern unter …" Click="RedactApply_Click" Margin="6,0,0,0"/>
         </StackPanel>
         <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
-          <Run Text="Schwärzen:" FontWeight="SemiBold"/>
-          <Run Text="Bereiche mit der Maus aufziehen. Klick auf einen Balken entfernt ihn."/>
-          <Run x:Name="RedactCount" Foreground="{DynamicResource Muted}"/>
+          <Run x:Name="ModeTitle" FontWeight="SemiBold"/>
+          <Run x:Name="ModeHint"/>
+          <Run x:Name="ModeCount" Foreground="{DynamicResource Muted}"/>
         </TextBlock>
       </DockPanel>
     </Border>
 
-    <!-- ───────── Seiten ───────── -->
-    <ItemsControl x:Name="PageList" Grid.Row="2" Focusable="False"
-                  VirtualizingPanel.IsVirtualizing="True"
-                  VirtualizingPanel.VirtualizationMode="Recycling"
-                  VirtualizingPanel.ScrollUnit="Pixel"
-                  ScrollViewer.CanContentScroll="True">
-      <ItemsControl.Template>
-        <ControlTemplate TargetType="ItemsControl">
-          <ScrollViewer x:Name="PART_Scroll" CanContentScroll="True" Focusable="True"
-                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-            <ItemsPresenter Margin="0,8,0,24"/>
-          </ScrollViewer>
-        </ControlTemplate>
-      </ItemsControl.Template>
-      <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate>
-          <VirtualizingStackPanel/>
-        </ItemsPanelTemplate>
-      </ItemsControl.ItemsPanel>
-      <ItemsControl.ItemTemplate>
-        <DataTemplate>
-          <Border Width="{Binding Width}" Height="{Binding Height}" Margin="0,8" HorizontalAlignment="Center"
-                  Background="{DynamicResource PagePlaceholder}">
-            <Grid Background="Transparent"
-                  MouseLeftButtonDown="Page_MouseDown" MouseMove="Page_MouseMove" MouseLeftButtonUp="Page_MouseUp">
-              <Image Source="{Binding Image}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
-              <ItemsControl ItemsSource="{Binding Redactions}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemContainerStyle>
-                  <Style TargetType="ContentPresenter">
-                    <Setter Property="Canvas.Left" Value="{Binding Left}"/>
-                    <Setter Property="Canvas.Top" Value="{Binding Top}"/>
-                  </Style>
-                </ItemsControl.ItemContainerStyle>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="Black" Opacity="0.85"
-                               Stroke="{DynamicResource Danger}" StrokeThickness="1" Cursor="Hand"
-                               ToolTip="Klicken zum Entfernen" MouseLeftButtonDown="Redaction_MouseDown"/>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </Grid>
+    <!-- ═════════ Inhalt ═════════ -->
+    <Grid Grid.Row="2" x:Name="ContentGrid">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition x:Name="SideCol" Width="210" MinWidth="0" MaxWidth="560"/>
+        <ColumnDefinition x:Name="SplitCol" Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <!-- Seitenleiste -->
+      <Border x:Name="Sidebar" Background="{DynamicResource Side}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
+        <DockPanel>
+          <Border DockPanel.Dock="Top" Padding="10,10,10,6">
+            <DockPanel>
+              <TextBlock x:Name="PageCountText" DockPanel.Dock="Right" Style="{StaticResource Hint}" VerticalAlignment="Center"/>
+              <Border Background="{DynamicResource Pill}" CornerRadius="9" Padding="2" HorizontalAlignment="Left">
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="TabPages" Style="{StaticResource Seg}" GroupName="side" IsChecked="True" Content="Seiten" Checked="SideTab_Checked"/>
+                  <RadioButton x:Name="TabNotes" Style="{StaticResource Seg}" GroupName="side" Checked="SideTab_Checked">
+                    <TextBlock><Run Text="Notizen"/><Run x:Name="NotesCount" Foreground="{DynamicResource Muted}"/></TextBlock>
+                  </RadioButton>
+                </StackPanel>
+              </Border>
+            </DockPanel>
           </Border>
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
 
-    <!-- ───────── Startbildschirm ───────── -->
-    <StackPanel x:Name="EmptyState" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center">
-      <Image Source="Assets/kanta.png" Width="84" Height="84" HorizontalAlignment="Center" Margin="0,0,0,14"/>
-      <TextBlock HorizontalAlignment="Center" FontSize="40" FontWeight="Light">
-        <Run Text="KANTA" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" Foreground="{DynamicResource Muted}"/>
-      </TextBlock>
-      <TextBlock Text="Ruhig lesen. Schnell erledigen." Foreground="{DynamicResource Muted}" FontSize="15"
-                 HorizontalAlignment="Center" Margin="0,4,0,26"/>
-      <Button Style="{StaticResource Primary}" Content="PDF öffnen" Click="Open_Click" HorizontalAlignment="Center" Padding="22,9" FontSize="14"/>
-      <TextBlock Text="oder Datei hierher ziehen" Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
-      <Button Content="Mehrere PDFs zusammenfügen …" Click="Merge_Click" HorizontalAlignment="Center" Margin="0,22,0,0"
-              Foreground="{DynamicResource Accent}"/>
-      <TextBlock Text="Made with ♥ in Ummaschumm" Style="{StaticResource Hint}" FontSize="11" HorizontalAlignment="Center" Margin="0,48,0,0"/>
-    </StackPanel>
+          <!-- Anhängen-Feld -->
+          <Grid x:Name="AppendZone" DockPanel.Dock="Bottom" Margin="12,6,12,12" Cursor="Hand" Background="Transparent"
+                MouseLeftButtonUp="AppendZone_Click" AllowDrop="True" Drop="AppendZone_Drop" DragOver="Window_DragOver"
+                ToolTip="Weitere PDFs hinten anhängen – oder Dateien direkt auf eine Seitenvorschau ziehen">
+            <Rectangle x:Name="AppendRect" RadiusX="10" RadiusY="10" Stroke="{DynamicResource Muted}" StrokeThickness="1.3"
+                       StrokeDashArray="4 3" Opacity="0.6"/>
+            <StackPanel Margin="10,12" HorizontalAlignment="Center">
+              <TextBlock Style="{StaticResource Ico}" Text="&#xE710;" HorizontalAlignment="Center" Foreground="{DynamicResource Accent}" FontSize="16"/>
+              <TextBlock Text="PDF anhängen" HorizontalAlignment="Center" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" Margin="0,4,0,0"/>
+              <TextBlock Text="klicken oder hierher ziehen" HorizontalAlignment="Center" Style="{StaticResource Hint}" FontSize="11"/>
+            </StackPanel>
+          </Grid>
 
-    <!-- ───────── Meldung unten ───────── -->
+          <Grid>
+            <!-- Seiten-Vorschau -->
+            <ListBox x:Name="ThumbList" SelectionMode="Extended" Background="Transparent" BorderThickness="0" Padding="0,2,0,6"
+                     VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                     VirtualizingPanel.ScrollUnit="Pixel" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     AllowDrop="True" Drop="Thumb_Drop" DragOver="Window_DragOver"
+                     SelectionChanged="Thumb_SelectionChanged" PreviewKeyDown="Thumb_KeyDown"
+                     PreviewMouseLeftButtonUp="Thumb_Clicked">
+              <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                  <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                  <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                  <Setter Property="Template">
+                    <Setter.Value>
+                      <ControlTemplate TargetType="ListBoxItem">
+                        <StackPanel Background="Transparent" Margin="0,7,0,3" HorizontalAlignment="Center">
+                          <Grid>
+                            <Border x:Name="Ring" Margin="-5" CornerRadius="7" BorderThickness="2.5"
+                                    BorderBrush="{DynamicResource Accent}" Visibility="Hidden"/>
+                            <Border x:Name="Frame" Width="{Binding ThumbW}" Height="{Binding ThumbH}" CornerRadius="3"
+                                    Background="{DynamicResource PagePlaceholder}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
+                              <Image Source="{Binding Thumb}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Border>
+                            <Button x:Name="Del" Style="{StaticResource IconChip}" Content="&#xE74D;" Click="ThumbDelete_Click"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" Visibility="Hidden"
+                                    ToolTip="Seite löschen (Entf)"/>
+                          </Grid>
+                          <TextBlock x:Name="Num" Text="{Binding Number}" HorizontalAlignment="Center" Margin="0,7,0,0"
+                                     FontSize="11.5" Foreground="{DynamicResource Muted}"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Del" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource Muted}"/>
+                          </Trigger>
+                          <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Ring" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Num" Property="Foreground" Value="{DynamicResource Accent}"/>
+                            <Setter TargetName="Num" Property="FontWeight" Value="SemiBold"/>
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Setter.Value>
+                  </Setter>
+                </Style>
+              </ListBox.ItemContainerStyle>
+            </ListBox>
+
+            <!-- Notizen-Liste -->
+            <ListBox x:Name="NotesList" Visibility="Collapsed" Background="Transparent" BorderThickness="0" Padding="8,2"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" PreviewMouseLeftButtonUp="NotesList_Clicked">
+              <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                  <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                  <Setter Property="Template">
+                    <Setter.Value>
+                      <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Card" Margin="2,4" Padding="12,10" CornerRadius="10" Background="{DynamicResource Bar}"
+                                BorderBrush="{DynamicResource Line}" BorderThickness="1" Cursor="Hand">
+                          <DockPanel>
+                            <Border DockPanel.Dock="Left" Width="4" CornerRadius="2" Background="{DynamicResource NoteBg}" Margin="0,0,10,0"/>
+                            <StackPanel>
+                              <TextBlock FontSize="11" Foreground="{DynamicResource Muted}">
+                                <Run Text="{Binding PageLabel, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=" · "/><Run Text="{Binding Meta, Mode=OneWay}"/>
+                              </TextBlock>
+                              <TextBlock Text="{Binding Preview}" TextWrapping="Wrap" MaxHeight="58" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
+                            </StackPanel>
+                          </DockPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Setter.Value>
+                  </Setter>
+                </Style>
+              </ListBox.ItemContainerStyle>
+            </ListBox>
+            <TextBlock x:Name="NotesEmpty" Visibility="Collapsed" Style="{StaticResource Hint}" TextAlignment="Center"
+                       Margin="20,30" Text="Noch keine Notizen. Werkzeug „Notiz“ wählen und auf die Seite klicken."/>
+          </Grid>
+        </DockPanel>
+      </Border>
+
+      <GridSplitter x:Name="Splitter" Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                    Background="Transparent" ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                    DragCompleted="Splitter_DragCompleted" Cursor="SizeWE" ToolTip="Ziehen, um die Leiste breiter zu machen"/>
+
+      <!-- Seiten -->
+      <ItemsControl x:Name="PageList" Grid.Column="2" Focusable="False"
+                    VirtualizingPanel.IsVirtualizing="True"
+                    VirtualizingPanel.VirtualizationMode="Recycling"
+                    VirtualizingPanel.ScrollUnit="Pixel"
+                    ScrollViewer.CanContentScroll="True">
+        <ItemsControl.Template>
+          <ControlTemplate TargetType="ItemsControl">
+            <ScrollViewer x:Name="PART_Scroll" CanContentScroll="True" Focusable="True"
+                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+              <ItemsPresenter Margin="0,8,0,24"/>
+            </ScrollViewer>
+          </ControlTemplate>
+        </ItemsControl.Template>
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <VirtualizingStackPanel/>
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Border Width="{Binding Width}" Height="{Binding Height}" Margin="0,8" HorizontalAlignment="Center"
+                    Background="{DynamicResource PagePlaceholder}">
+              <Grid x:Name="PageSurface" Background="Transparent" ClipToBounds="True"
+                    MouseLeftButtonDown="Page_MouseDown" MouseMove="Page_MouseMove" MouseLeftButtonUp="Page_MouseUp"
+                    MouseRightButtonUp="Page_RightClick">
+                <Image Source="{Binding Image}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                <!-- Textmarker -->
+                <ItemsControl ItemsSource="{Binding Highlights}" IsHitTestVisible="False">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <ItemsControl ItemsSource="{Binding Rects}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle>
+                          <Style TargetType="ContentPresenter">
+                            <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                            <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                          </Style>
+                        </ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="{DynamicResource Marker}" RadiusX="1.5" RadiusY="1.5"/>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Textauswahl -->
+                <ItemsControl ItemsSource="{Binding Selection}" IsHitTestVisible="False">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="{DynamicResource Selection}" RadiusX="1.5" RadiusY="1.5"/>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Schwärzungen -->
+                <ItemsControl ItemsSource="{Binding Redactions}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Rectangle Width="{Binding W}" Height="{Binding H}" Fill="Black" Opacity="0.85"
+                                 Stroke="{DynamicResource Danger}" StrokeThickness="1" Cursor="Hand"
+                                 ToolTip="Klicken zum Entfernen" MouseLeftButtonDown="Redaction_MouseDown"/>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Notizen -->
+                <ItemsControl ItemsSource="{Binding Notes}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Width="26" Height="26" CornerRadius="8" Background="{DynamicResource NoteBg}" Cursor="Hand"
+                              BorderBrush="#B38A00" BorderThickness="1" ToolTip="{Binding Preview}"
+                              MouseLeftButtonDown="Note_MouseDown">
+                        <Border.Effect>
+                          <DropShadowEffect BlurRadius="8" ShadowDepth="1.5" Opacity="0.25"/>
+                        </Border.Effect>
+                        <TextBlock Style="{StaticResource Ico}" Text="&#xE90A;" FontSize="13" Foreground="#5C4500"
+                                   HorizontalAlignment="Center"/>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <!-- Startbildschirm -->
+      <Grid x:Name="EmptyState" Grid.Column="0" Grid.ColumnSpan="3" Background="{DynamicResource Bg}">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Image Source="Assets/kanta.png" Width="88" Height="88" HorizontalAlignment="Center" Margin="0,0,0,14"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock HorizontalAlignment="Center" FontSize="40" FontWeight="Light">
+            <Run Text="KANTA" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"/><Run Text="pdf" Foreground="{DynamicResource Muted}"/>
+          </TextBlock>
+          <TextBlock Text="Ruhig lesen. Schnell erledigen." Foreground="{DynamicResource Muted}" FontSize="15"
+                     HorizontalAlignment="Center" Margin="0,4,0,26"/>
+          <Button Style="{StaticResource Primary}" Click="Open_Click" HorizontalAlignment="Center" Padding="22,10" FontSize="14">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource Ico}" Text="&#xE8E5;" Margin="0,0,8,0" Foreground="White"/>
+              <TextBlock Text="PDF öffnen"/>
+            </StackPanel>
+          </Button>
+          <Grid Margin="0,22,0,0" Width="380" Height="96">
+            <Rectangle RadiusX="14" RadiusY="14" Stroke="{DynamicResource Muted}" StrokeThickness="1.3" StrokeDashArray="4 3" Opacity="0.55"/>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+              <TextBlock Text="PDFs hierher ziehen" HorizontalAlignment="Center" FontWeight="SemiBold"/>
+              <TextBlock Text="Mehrere Dateien auf einmal werden automatisch zusammengefügt."
+                         Style="{StaticResource Hint}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+            </StackPanel>
+          </Grid>
+          <TextBlock Text="Made with ♥ in Ummaschumm" Style="{StaticResource Hint}" FontSize="11" HorizontalAlignment="Center" Margin="0,44,0,0"/>
+        </StackPanel>
+      </Grid>
+    </Grid>
+
+    <!-- ═════════ Meldung unten ═════════ -->
     <Border x:Name="Toast" Grid.Row="3" Visibility="Collapsed" Background="{DynamicResource Bar}"
             BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,8">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-          <Button x:Name="ToastOpen" Style="{StaticResource Primary}" Content="Öffnen" Click="ToastOpen_Click"/>
-          <Button Content="Im Ordner zeigen" Click="ToastFolder_Click"/>
-          <Button Content="✕" Click="ToastClose_Click" Padding="10,6"/>
+          <Button x:Name="ToastAction" Style="{StaticResource Primary}" Click="ToastAction_Click"/>
+          <Button x:Name="ToastFolder" Content="Im Ordner zeigen" Click="ToastFolder_Click"/>
+          <Button Click="ToastClose_Click" Padding="9,6">
+            <TextBlock Style="{StaticResource Ico}" Text="&#xE711;" FontSize="11"/>
+          </Button>
         </StackPanel>
-        <TextBlock x:Name="ToastText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Style="{StaticResource Ico}" Text="&#xE73E;" Foreground="{DynamicResource Accent}" Margin="0,0,10,0"/>
+          <TextBlock x:Name="ToastText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
       </DockPanel>
     </Border>
+
+    <!-- ═════════ Notiz-Editor ═════════ -->
+    <Popup x:Name="NotePopup" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade"
+           Placement="Right" HorizontalOffset="6" Closed="NotePopup_Closed">
+      <Border Background="{DynamicResource Bar}" CornerRadius="12" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+              Padding="14,12" Margin="10" Width="300">
+        <Border.Effect>
+          <DropShadowEffect BlurRadius="26" ShadowDepth="4" Opacity="0.2"/>
+        </Border.Effect>
+        <StackPanel>
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Click="NoteDelete_Click" Padding="7,5" ToolTip="Notiz löschen">
+              <TextBlock Style="{StaticResource Ico}" Text="&#xE74D;" FontSize="13" Foreground="{DynamicResource Danger}"/>
+            </Button>
+            <Border Width="10" Height="10" CornerRadius="3" Background="{DynamicResource NoteBg}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+            <TextBlock x:Name="NoteMeta" Style="{StaticResource Hint}" VerticalAlignment="Center"/>
+          </DockPanel>
+          <TextBox x:Name="NoteText" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="96" MaxHeight="260"
+                   VerticalScrollBarVisibility="Auto" Margin="0,8,0,0" BorderThickness="0" Background="Transparent"
+                   FontSize="13.5" Padding="0,2"/>
+          <TextBlock Text="Wird beim Speichern als PDF-Kommentar abgelegt – auch in Acrobat sichtbar."
+                     Style="{StaticResource Hint}" FontSize="11" Margin="0,6,0,0"/>
+        </StackPanel>
+      </Border>
+    </Popup>
   </Grid>
 </Window>

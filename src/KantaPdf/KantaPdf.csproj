@@ -17,7 +17,7 @@
     <Product>KANTApdf</Product>
     <Company>wetzel.digital</Company>
     <Copyright>Made with ♥ in Ummaschumm</Copyright>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
 
     <!-- Eine einzelne EXE, ohne dass .NET installiert sein muss -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -31,6 +31,8 @@
   <ItemGroup>
     <!-- MIT-Lizenz: Zusammenfügen, Teilen, Verkleinern, OCR-Textschicht -->
     <PackageReference Include="PDFsharp" Version="6.1.1" />
+    <!-- Apache-2.0: Textschicht lesen (markieren & kopieren) -->
+    <PackageReference Include="PdfPig" Version="0.1.9" />
   </ItemGroup>
 
   <ItemGroup>
