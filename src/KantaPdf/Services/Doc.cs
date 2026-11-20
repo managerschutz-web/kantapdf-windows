@@ -220,6 +220,112 @@ namespace KantaPdf.Services
         }
     }
 
+    public enum FieldKind { Text, Multiline, Check, Radio, Choice }
+
+    /// <summary>Ausfüllbares Formularfeld (Widget) einer Seite.</summary>
+    public sealed class FieldItem : Notify
+    {
+        public PageItem Page { get; }
+        public int AnnotIndex { get; }
+        public FieldKind Kind { get; }
+        public string Name { get; }
+        public string OnName { get; }
+        public string Group { get; }
+        public List<string> Options { get; }
+        public double NX, NY, NW, NH;
+        public bool Changed { get; private set; }
+
+        private string _value;
+        private bool _checked;
+        private double _l, _t, _w, _h, _fs;
+
+        public string Value { get => _value; set { if (_value == value) return; _value = value; Changed = true; On(); } }
+        public bool IsChecked { get => _checked; set { if (_checked == value) return; _checked = value; Changed = true; On(); } }
+        public double Left { get => _l; private set { _l = value; On(); } }
+        public double Top { get => _t; private set { _t = value; On(); } }
+        public double W { get => _w; private set { _w = value; On(); } }
+        public double H { get => _h; private set { _h = value; On(); } }
+        public double FontSize { get => _fs; private set { _fs = value; On(); } }
+
+        public bool IsText => Kind == FieldKind.Text || Kind == FieldKind.Multiline;
+        public bool IsMultiline => Kind == FieldKind.Multiline;
+        public bool IsCheck => Kind == FieldKind.Check || Kind == FieldKind.Radio;
+        public bool IsRadio => Kind == FieldKind.Radio;
+        public bool IsChoice => Kind == FieldKind.Choice;
+
+        public FieldItem(PageItem page, FieldDef d)
+        {
+            Page = page; AnnotIndex = d.AnnotIndex; Kind = d.Kind; Name = d.Name; OnName = d.OnName; Group = d.Group;
+            Options = d.Options ?? new List<string>();
+            _value = d.Value ?? ""; _checked = d.Checked;
+            NX = d.X; NY = d.Y; NW = d.W; NH = d.H;
+            UpdateDisplay();
+        }
+
+        /// <summary>Optionsfeld der Gruppe ausschalten, ohne es als „geändert“ zu verlieren.</summary>
+        public void SetCheckedSilently(bool on) { if (_checked == on) return; _checked = on; Changed = true; On(nameof(IsChecked)); }
+
+        public void Rotate90() { (NX, NY, NW, NH) = Geo.Rot90(NX, NY, NW, NH); UpdateDisplay(); }
+
+        public void UpdateDisplay()
+        {
+            Left = NX * Page.Width; Top = NY * Page.Height; W = NW * Page.Width; H = NH * Page.Height;
+            double z = Page.BaseWidth > 0 ? Page.Width / Page.BaseWidth : 1;
+            FontSize = IsMultiline ? Math.Max(6, 13 * z) : Math.Max(6, Math.Min(H * 0.62, 15 * z));
+        }
+    }
+
+    /// <summary>Formularfeld, wie es aus der PDF gelesen wurde.</summary>
+    public sealed class FieldDef
+    {
+        public int PageIndex, AnnotIndex;
+        public FieldKind Kind;
+        public string Name, Value, OnName, Group;
+        public bool Checked;
+        public List<string> Options;
+        public double X, Y, W, H;
+    }
+
+    /// <summary>Frei eingefügter Text – wird beim Speichern fest in die Seite geschrieben.</summary>
+    public sealed class TextItem : Notify
+    {
+        public PageItem Page { get; }
+        public double NX, NY;
+        public bool FocusOnLoad;
+
+        private string _text = "";
+        private double _pt = 11, _l, _t, _size;
+        private Color _color = Colors.Black;
+        private bool _bold;
+
+        public string Text { get => _text; set { _text = value ?? ""; On(); } }
+        public double FontPt { get => _pt; set { _pt = Math.Max(5, Math.Min(96, value)); On(); UpdateDisplay(); } }
+        public Color Color { get => _color; set { _color = value; On(); On(nameof(Brush)); } }
+        public bool Bold { get => _bold; set { _bold = value; On(); On(nameof(Weight)); } }
+        public Brush Brush { get { var b = new SolidColorBrush(_color); b.Freeze(); return b; } }
+        public FontWeight Weight => _bold ? FontWeights.Bold : FontWeights.Normal;
+        public double Left { get => _l; private set { _l = value; On(); } }
+        public double Top { get => _t; private set { _t = value; On(); } }
+        public double DisplaySize { get => _size; private set { _size = value; On(); } }
+
+        public TextItem(PageItem page, double nx, double ny) { Page = page; NX = nx; NY = ny; UpdateDisplay(); }
+
+        public void Move(double dx, double dy)
+        {
+            NX = Math.Max(0, Math.Min(0.98, NX + dx));
+            NY = Math.Max(0, Math.Min(0.98, NY + dy));
+            UpdateDisplay();
+        }
+
+        public void UpdateDisplay()
+        {
+            Left = NX * Page.Width;
+            Top = NY * Page.Height;
+            double z = Page.BaseWidth > 0 ? Page.Width / Page.BaseWidth : 1;
+            DisplaySize = _pt * 96.0 / 72.0 * z;
+        }
+    }
+
     /// <summary>Eine Seite im aktuellen Dokument (verweist auf Quelle + Seitennummer).</summary>
     public sealed class PageItem : Notify
     {
@@ -250,6 +356,8 @@ namespace KantaPdf.Services
         public ObservableCollection<NoteItem> Notes { get; } = new ObservableCollection<NoteItem>();
         public ObservableCollection<PlacedItem> Placed { get; } = new ObservableCollection<PlacedItem>();
         public ObservableCollection<RectItem> SearchHits { get; } = new ObservableCollection<RectItem>();
+        public ObservableCollection<FieldItem> Fields { get; } = new ObservableCollection<FieldItem>();
+        public ObservableCollection<TextItem> Texts { get; } = new ObservableCollection<TextItem>();
 
         // Textschicht (WordsRaw = Quellseite, Words = inkl. Nutzer-Drehung)
         public List<WordBox> WordsRaw;
@@ -281,6 +389,7 @@ namespace KantaPdf.Services
                 foreach (var r in Redactions) r.Rotate90();
                 foreach (var h in Highlights) foreach (var r in h.Rects) r.Rotate90();
                 foreach (var n in Notes) { var (x, y, _, _) = Geo.Rot90(n.NX, n.NY, 0, 0); n.NX = x; n.NY = y; }
+                foreach (var f in Fields) f.Rotate90();
             }
             ExtraRotation = (ExtraRotation + delta % 360 + 360) % 360;
             Selection.Clear();
@@ -312,6 +421,8 @@ namespace KantaPdf.Services
             foreach (var n in Notes) n.UpdateDisplay();
             foreach (var p in Placed) p.UpdateDisplay();
             foreach (var r in SearchHits) r.UpdateDisplay();
+            foreach (var f in Fields) f.UpdateDisplay();
+            foreach (var t in Texts) t.UpdateDisplay();
         }
 
         public void ApplyThumbWidth(double w)

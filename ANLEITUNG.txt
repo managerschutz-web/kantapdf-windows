@@ -1,4 +1,4 @@
-KANTApdf für Windows – v0.4.0
+KANTApdf für Windows – v0.5.0
 =============================
 Made with ♥ in Ummaschumm
 
@@ -65,8 +65,18 @@ ZUSAMMENFÜGEN – so einfach wie möglich
 - „PDF anhängen“ unten in der Leiste
 - Danach: Speichern
 
-TEXT, MARKER, NOTIZEN (Schalter oben in der Mitte)
-- Text: mit der Maus überstreichen → Strg+C kopiert; Doppelklick = Wort; Strg+A = ganze Seite; Rechtsklick = Menü
+FORMULARE AUSFÜLLEN
+- Ausfüllbare PDFs werden automatisch erkannt, Felder sind hellblau hinterlegt
+- Reinklicken und tippen, Tab = nächstes Feld; Kontrollkästchen, Optionsfelder, Auswahllisten
+- Beim Speichern bleiben es echte Formularfelder (in Acrobat weiter bearbeitbar)
+
+TEXT EINFÜGEN (Werkzeug „Schreiben“)
+- Auf die Stelle klicken und tippen (Enter = neue Zeile)
+- Kleine Leiste darüber: verschieben, A−/A+, Fett, Farbe, löschen
+- Wird beim Speichern fest in die Seite geschrieben (kein Kommentar)
+
+AUSWÄHLEN, MARKER, NOTIZEN (Schalter oben in der Mitte)
+- Auswählen: Text mit der Maus überstreichen → Strg+C kopiert; Doppelklick = Wort; Strg+A = ganze Seite; Rechtsklick = Menü
 - Marker: Farbe in der grünen Leiste wählen (Gelb, Grün, Blau, Pink, Orange), Text überstreichen;
   Rechtsklick auf Markierung → Farbe ändern / entfernen
 - Notiz: auf eine Stelle klicken und tippen, „Fertig“ oder Strg+Enter; leere Notiz verschwindet
@@ -85,7 +95,7 @@ WERKZEUGE (Menü rechts oben)
 BEKANNTE GRENZEN (v0.2)
 - Bereits vorhandene Kommentare in fremden PDFs werden angezeigt, sind aber (noch) nicht bearbeitbar
 - Formularfelder können beim Zusammenfügen/Speichern verloren gehen
-- OCR, Unterschrift und Stempel: noch nicht auf Seiten, die im PDF gedreht sind
+- OCR, Unterschrift, Stempel und eingefügter Text: noch nicht auf gedrehten Seiten
 - Kennwortschutz entfernen: Lesezeichen gehen verloren
 
 TECHNIK

@@ -19,7 +19,7 @@ namespace KantaPdf
 {
     public partial class MainWindow : Window
     {
-        private enum Tool { Text, Marker, Note, Redact }
+        private enum Tool { Text, Marker, Note, Redact, Write }
 
         // Dokument
         private readonly ObservableCollection<PageItem> _pages = new ObservableCollection<PageItem>();
@@ -84,6 +84,11 @@ namespace KantaPdf
         private int _hitIndex = -1;
         private string _lastQuery;
         private int _searchGen;
+
+        // Schreiben: zuletzt benutzter Stil
+        private double _lastTextPt = 11;
+        private Color _lastTextColor = Color.FromRgb(0x11, 0x11, 0x11);
+        private bool _lastTextBold;
 
         // Fokusmodus
         private bool _focus;
@@ -264,6 +269,28 @@ namespace KantaPdf
                 ShowToast($"{what} eingefügt (+{newPages.Count} Seite{(newPages.Count == 1 ? "" : "n")}).", "Rückgängig", Undo);
             }
             Kick();
+            await AttachFieldsAsync(sources, newPages);
+        }
+
+        /// <summary>Formularfelder der neuen Seiten lesen und als Eingabefelder einblenden.</summary>
+        private async Task AttachFieldsAsync(List<Source> sources, List<PageItem> pages)
+        {
+            int total = 0;
+            foreach (var src in sources)
+            {
+                var defs = await FormReader.ReadAsync(src);
+                if (defs.Count == 0) continue;
+                foreach (var pg in pages.Where(p => p.Source == src))
+                {
+                    foreach (var d in defs.Where(d => d.PageIndex == pg.SourceIndex))
+                    {
+                        pg.Fields.Add(new FieldItem(pg, d));
+                        total++;
+                    }
+                }
+            }
+            if (total > 0)
+                ShowToast($"Ausfüllbares Formular erkannt ({total} Felder) – einfach reinklicken und tippen. Tab springt zum nächsten Feld.", null, null);
         }
 
         private async Task<Source> OpenSourceAsync(string path)
@@ -782,6 +809,13 @@ namespace KantaPdf
             bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
             if (e.Key == Key.F11) { Focus_Click(null, null); e.Handled = true; return; }
+            if (e.Key == Key.Escape && Keyboard.FocusedElement is FrameworkElement fe0 && (fe0.DataContext is TextItem || fe0.DataContext is FieldItem))
+            {
+                Keyboard.ClearFocus();
+                PageList.Focus();
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.F3 && _pages.Count > 0)
             {
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) SearchPrev_Click(null, null); else SearchNext_Click(null, null);
@@ -845,6 +879,7 @@ namespace KantaPdf
             var t = ToolMarker.IsChecked == true ? Tool.Marker
                   : ToolNote.IsChecked == true ? Tool.Note
                   : ToolRedact.IsChecked == true ? Tool.Redact
+                  : ToolWrite.IsChecked == true ? Tool.Write
                   : Tool.Text;
             ApplyTool(t);
         }
@@ -856,6 +891,7 @@ namespace KantaPdf
                 case Tool.Marker: ToolMarker.IsChecked = true; break;
                 case Tool.Note: ToolNote.IsChecked = true; break;
                 case Tool.Redact: ToolRedact.IsChecked = true; break;
+                case Tool.Write: ToolWrite.IsChecked = true; break;
                 default: ToolText.IsChecked = true; break;
             }
             ApplyTool(t);
@@ -867,7 +903,7 @@ namespace KantaPdf
             _pendingPng = null;
             _pendingKind = null;
             ClearSelection();
-            PageList.Cursor = t == Tool.Text || t == Tool.Marker ? Cursors.IBeam : Cursors.Cross;
+            PageList.Cursor = t == Tool.Text || t == Tool.Marker || t == Tool.Write ? Cursors.IBeam : Cursors.Cross;
             RedactActions.Visibility = t == Tool.Redact ? Visibility.Visible : Visibility.Collapsed;
             switch (t)
             {
@@ -876,6 +912,9 @@ namespace KantaPdf
                     break;
                 case Tool.Note:
                     ModeTitle.Text = "Notiz:"; ModeHint.Text = "Auf die gewünschte Stelle klicken und lostippen. Esc beendet.";
+                    break;
+                case Tool.Write:
+                    ModeTitle.Text = "Schreiben:"; ModeHint.Text = "Auf die Stelle klicken und lostippen. Größe, Farbe und Fett in der kleinen Leiste darüber. Wird beim Speichern fest in die Seite geschrieben.";
                     break;
                 case Tool.Redact:
                     ModeTitle.Text = "Schwärzen:"; ModeHint.Text = "Bereiche aufziehen. Klick auf einen Balken entfernt ihn. Beim Speichern werden die Seiten endgültig bereinigt.";
@@ -930,6 +969,26 @@ namespace KantaPdf
                     page.Notes.Add(note);
                     RefreshNotes();
                     OpenNoteEditor(note, grid, new Rect(p.X, p.Y, 26, 26), isNew: true);
+                    e.Handled = true;
+                    break;
+
+                case Tool.Write:
+                    if (Keyboard.FocusedElement is TextBox ftb && ftb.DataContext is TextItem)
+                    {
+                        // erster Klick daneben beendet nur das Schreiben
+                        Keyboard.ClearFocus();
+                        PageList.Focus();
+                        e.Handled = true;
+                        return;
+                    }
+                    if (page.SourceRotation != 0 || page.ExtraRotation != 0)
+                    {
+                        ShowToast("Diese Seite ist gedreht – dort kann noch kein Text eingefügt werden.", null, null);
+                        return;
+                    }
+                    double off = 8.0 / Math.Max(1, grid.ActualHeight);
+                    var ti = new TextItem(page, np.X - 3.0 / Math.Max(1, grid.ActualWidth), Math.Max(0, np.Y - off)) { FocusOnLoad = true, FontPt = _lastTextPt, Color = _lastTextColor, Bold = _lastTextBold };
+                    page.Texts.Add(ti);
                     e.Handled = true;
                     break;
 
@@ -1623,10 +1682,10 @@ namespace KantaPdf
         {
             var list = pages.Where(p => p != null).Distinct().ToList();
             if (list.Count == 0) return;
-            if (list.Any(p => p.Placed.Count > 0))
+            if (list.Any(p => p.Placed.Count > 0 || p.Texts.Count > 0))
             {
-                ShowToast("Seiten mit Unterschrift oder Stempel können (noch) nicht gedreht werden.", null, null);
-                list = list.Where(p => p.Placed.Count == 0).ToList();
+                ShowToast("Seiten mit Unterschrift, Stempel oder eingefügtem Text können (noch) nicht gedreht werden.", null, null);
+                list = list.Where(p => p.Placed.Count == 0 && p.Texts.Count == 0).ToList();
                 if (list.Count == 0) return;
             }
             if (list.Contains(_selPage)) ClearSelection();
@@ -1849,6 +1908,38 @@ namespace KantaPdf
                 }
                 foreach (var r in p.Redactions) dc.DrawRectangle(Brushes.Black, null, new Rect(r.NX * w, r.NY * h, r.NW * w, r.NH * h));
                 foreach (var pl in p.Placed) dc.DrawImage(pl.Image, new Rect(pl.NX * w, pl.NY * h, pl.NW * w, pl.NH * h));
+                double k = w / Math.Max(1, p.BaseWidth); // Pixel pro DIP
+                var arial = new Typeface("Arial");
+                foreach (var t in p.Texts.Where(x => !string.IsNullOrWhiteSpace(x.Text)))
+                {
+                    var tf = new Typeface(new FontFamily("Arial"), FontStyles.Normal, t.Bold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
+                    var ft = new FormattedText(t.Text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                        tf, t.FontPt * 96.0 / 72.0 * k, t.Brush, 1.0);
+                    dc.DrawText(ft, new Point(t.NX * w + 3 * k, t.NY * h + 2 * k));
+                }
+                foreach (var f in p.Fields.Where(x => x.Changed))
+                {
+                    var rect = new Rect(f.NX * w, f.NY * h, f.NW * w, f.NH * h);
+                    if (f.IsCheck)
+                    {
+                        dc.DrawRectangle(Brushes.White, null, rect);
+                        if (f.IsChecked)
+                        {
+                            var pen = new Pen(Brushes.Black, Math.Max(1, rect.Height * 0.12));
+                            dc.DrawLine(pen, new Point(rect.Left + rect.Width * 0.2, rect.Top + rect.Height * 0.55), new Point(rect.Left + rect.Width * 0.42, rect.Bottom - rect.Height * 0.2));
+                            dc.DrawLine(pen, new Point(rect.Left + rect.Width * 0.42, rect.Bottom - rect.Height * 0.2), new Point(rect.Right - rect.Width * 0.15, rect.Top + rect.Height * 0.2));
+                        }
+                    }
+                    else
+                    {
+                        dc.DrawRectangle(Brushes.White, null, rect);
+                        double fs = f.IsMultiline ? Math.Min(rect.Height * 0.8, 10 * 96.0 / 72.0 * k) : Math.Min(rect.Height * 0.66, 12 * 96.0 / 72.0 * k);
+                        var ft = new FormattedText(f.Value ?? "", System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                            arial, Math.Max(4, fs), Brushes.Black, 1.0) { MaxTextWidth = Math.Max(1, rect.Width - 4) };
+                        if (!f.IsMultiline) ft.MaxLineCount = 1;
+                        dc.DrawText(ft, new Point(rect.Left + 2, f.IsMultiline ? rect.Top + 2 : rect.Top + (rect.Height - ft.Height) / 2));
+                    }
+                }
             }
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)w, (int)h, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
@@ -1887,6 +1978,95 @@ namespace KantaPdf
                 ApplyTool(_tool);
             }
             Dispatcher.BeginInvoke(new Action(FitWidth), DispatcherPriority.Loaded);
+        }
+
+        // ═════════════════════════ Formularfelder ═════════════════════════
+
+        private void Field_Changed(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is FieldItem f && f.Changed && !_dirty) SetDirty(true);
+        }
+
+        private void FieldCheck_Checked(object sender, RoutedEventArgs e)
+        {
+            if (!((sender as FrameworkElement)?.DataContext is FieldItem f)) return;
+            if (f.IsRadio && f.Group != null)
+            {
+                // Optionsfeld: alle anderen der Gruppe ausschalten
+                foreach (var p in _pages)
+                    foreach (var o in p.Fields)
+                        if (o != f && o.IsRadio && o.Group == f.Group && o.Page.Source == f.Page.Source && o.IsChecked)
+                            o.SetCheckedSilently(false);
+            }
+            if (f.Changed) SetDirty(true);
+        }
+
+        // ═════════════════════════ Text einfügen ═════════════════════════
+
+        private void TextItem_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox tb && tb.DataContext is TextItem t && t.FocusOnLoad)
+            {
+                t.FocusOnLoad = false;
+                Dispatcher.BeginInvoke(new Action(() => { tb.Focus(); Keyboard.Focus(tb); }), DispatcherPriority.Input);
+            }
+        }
+
+        private void TextItem_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (!(sender is TextBox tb) || !(tb.DataContext is TextItem t)) return;
+            // Fokus wandert in die eigene Leiste? Dann nichts tun
+            if (e.NewFocus is DependencyObject nf && FindAncestor<TextBox>(nf) == tb) return;
+            if (string.IsNullOrWhiteSpace(t.Text)) t.Page.Texts.Remove(t);
+        }
+
+        private void TextItem_Changed(object sender, TextChangedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is TextItem t && !string.IsNullOrEmpty(t.Text)) SetDirty(true);
+        }
+
+        private static TextItem TextItemOf(object sender) => (sender as FrameworkElement)?.DataContext as TextItem;
+
+        private void TextItem_Move(object sender, DragDeltaEventArgs e)
+        {
+            var t = TextItemOf(sender);
+            if (t == null || t.Page.Width <= 0) return;
+            t.Move(e.HorizontalChange / t.Page.Width, e.VerticalChange / t.Page.Height);
+        }
+
+        private void TextSmaller_Click(object sender, RoutedEventArgs e)
+        {
+            var t = TextItemOf(sender); if (t == null) return;
+            t.FontPt = Math.Round(t.FontPt - (t.FontPt > 14 ? 2 : 1));
+            _lastTextPt = t.FontPt; SetDirty(true);
+        }
+
+        private void TextBigger_Click(object sender, RoutedEventArgs e)
+        {
+            var t = TextItemOf(sender); if (t == null) return;
+            t.FontPt = Math.Round(t.FontPt + (t.FontPt >= 14 ? 2 : 1));
+            _lastTextPt = t.FontPt; SetDirty(true);
+        }
+
+        private void TextBold_Click(object sender, RoutedEventArgs e)
+        {
+            var t = TextItemOf(sender); if (t == null) return;
+            t.Bold = !t.Bold;
+            _lastTextBold = t.Bold; SetDirty(true);
+        }
+
+        private void TextColor_Click(object sender, RoutedEventArgs e)
+        {
+            var t = TextItemOf(sender); if (t == null) return;
+            try { t.Color = (Color)ColorConverter.ConvertFromString((string)((FrameworkElement)sender).Tag); } catch { }
+            _lastTextColor = t.Color; SetDirty(true);
+        }
+
+        private void TextDelete_Click(object sender, RoutedEventArgs e)
+        {
+            var t = TextItemOf(sender); if (t == null) return;
+            t.Page.Texts.Remove(t);
+            SetDirty(true);
         }
 
         // ═════════════════════════ Meldungen ═════════════════════════

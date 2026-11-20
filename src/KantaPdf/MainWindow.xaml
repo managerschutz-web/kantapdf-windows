@@ -75,10 +75,17 @@
         <Border x:Name="ToolPill" Grid.Column="1" Background="{DynamicResource Pill}" CornerRadius="10" Padding="3" VerticalAlignment="Center">
           <StackPanel Orientation="Horizontal">
             <RadioButton x:Name="ToolText" Style="{StaticResource Seg}" GroupName="tool" IsChecked="True" Checked="Tool_Checked"
-                         ToolTip="Text markieren und kopieren (Strg+C)">
+                         ToolTip="Auswählen: Text markieren und kopieren (Strg+C), Formulare ausfüllen">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Ico}" Text="&#xE8B3;" FontSize="14" Margin="0,0,6,0"/>
+                <TextBlock Text="Auswählen"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="ToolWrite" Style="{StaticResource Seg}" GroupName="tool" Checked="Tool_Checked"
+                         ToolTip="Text einfügen – wird fest in die Seite geschrieben">
               <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource Ico}" Text="&#xE8D2;" FontSize="14" Margin="0,0,6,0"/>
-                <TextBlock Text="Text"/>
+                <TextBlock Text="Schreiben"/>
               </StackPanel>
             </RadioButton>
             <RadioButton x:Name="ToolMarker" Style="{StaticResource Seg}" GroupName="tool" Checked="Tool_Checked"
@@ -495,6 +502,126 @@
                         <TextBlock Style="{StaticResource Ico}" Text="&#xE90A;" FontSize="13" Foreground="#5C4500"
                                    HorizontalAlignment="Center"/>
                       </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Formularfelder -->
+                <ItemsControl ItemsSource="{Binding Fields}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Width="{Binding W}" Height="{Binding H}" ToolTip="{Binding Name}">
+                        <TextBox x:Name="FText" Visibility="Collapsed" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                 FontFamily="Arial" FontSize="{Binding FontSize}" Padding="2,0" BorderThickness="0,0,0,1"
+                                 BorderBrush="#8098C0F0" Background="#E6E8F1FF" Foreground="#111111" CaretBrush="#111111"
+                                 VerticalContentAlignment="Center" TextChanged="Field_Changed"/>
+                        <CheckBox x:Name="FCheck" Visibility="Collapsed" IsChecked="{Binding IsChecked}" Checked="FieldCheck_Checked"
+                                  Unchecked="Field_Changed" Cursor="Hand" Margin="0" Focusable="True">
+                          <CheckBox.Template>
+                            <ControlTemplate TargetType="CheckBox">
+                              <Border x:Name="box" Background="#E6E8F1FF" BorderBrush="#8098C0F0" BorderThickness="1" CornerRadius="2">
+                                <Viewbox Margin="2">
+                                  <TextBlock x:Name="mark" Text="&#xE73E;" FontFamily="{StaticResource IconFont}" Foreground="#111111" Visibility="Hidden"/>
+                                </Viewbox>
+                              </Border>
+                              <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                  <Setter TargetName="mark" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                  <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                </Trigger>
+                              </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                          </CheckBox.Template>
+                        </CheckBox>
+                        <ComboBox x:Name="FChoice" Visibility="Collapsed" ItemsSource="{Binding Options}" Text="{Binding Value}"
+                                  IsEditable="True" FontFamily="Arial" FontSize="{Binding FontSize}" Padding="2,0"
+                                  Background="#E6E8F1FF" SelectionChanged="Field_Changed" VerticalContentAlignment="Center"/>
+                      </Grid>
+                      <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsText}" Value="True">
+                          <Setter TargetName="FText" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsMultiline}" Value="True">
+                          <Setter TargetName="FText" Property="AcceptsReturn" Value="True"/>
+                          <Setter TargetName="FText" Property="TextWrapping" Value="Wrap"/>
+                          <Setter TargetName="FText" Property="VerticalContentAlignment" Value="Top"/>
+                          <Setter TargetName="FText" Property="VerticalScrollBarVisibility" Value="Auto"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsCheck}" Value="True">
+                          <Setter TargetName="FCheck" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsChoice}" Value="True">
+                          <Setter TargetName="FChoice" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                      </DataTemplate.Triggers>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Eingefügte Texte -->
+                <ItemsControl ItemsSource="{Binding Texts}">
+                  <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                      <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                      <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                    </Style>
+                  </ItemsControl.ItemContainerStyle>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid x:Name="Root">
+                        <TextBox x:Name="TBox" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" FontFamily="Arial"
+                                 FontSize="{Binding DisplaySize}" Foreground="{Binding Brush}" FontWeight="{Binding Weight}"
+                                 AcceptsReturn="True" Background="Transparent" BorderThickness="1" BorderBrush="Transparent"
+                                 Padding="2,1" MinWidth="40" CaretBrush="{Binding Brush}" Cursor="IBeam"
+                                 Loaded="TextItem_Loaded" LostKeyboardFocus="TextItem_LostFocus" TextChanged="TextItem_Changed"/>
+                        <Border x:Name="Bar" Visibility="Collapsed" Background="{DynamicResource Bar}" CornerRadius="9" Padding="3"
+                                BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-44,0,0">
+                          <Border.Effect>
+                            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.18"/>
+                          </Border.Effect>
+                          <StackPanel Orientation="Horizontal">
+                            <Thumb Width="22" Height="26" Focusable="False" Cursor="SizeAll" DragDelta="TextItem_Move" DragCompleted="Placed_DragCompleted" ToolTip="Verschieben">
+                              <Thumb.Template>
+                                <ControlTemplate TargetType="Thumb">
+                                  <Border Background="Transparent">
+                                    <TextBlock Style="{StaticResource Ico}" Text="&#xE7C2;" FontSize="13" HorizontalAlignment="Center" Foreground="{DynamicResource Muted}"/>
+                                  </Border>
+                                </ControlTemplate>
+                              </Thumb.Template>
+                            </Thumb>
+                            <Button Focusable="False" Padding="7,3" Click="TextSmaller_Click" ToolTip="Kleiner"><TextBlock Text="A−" FontSize="11"/></Button>
+                            <Button Focusable="False" Padding="7,3" Click="TextBigger_Click" ToolTip="Größer"><TextBlock Text="A+" FontSize="13"/></Button>
+                            <Button Focusable="False" Padding="7,3" Click="TextBold_Click" ToolTip="Fett"><TextBlock Text="B" FontWeight="Bold"/></Button>
+                            <Button Focusable="False" Padding="5,3" Click="TextColor_Click" Tag="#111111" ToolTip="Schwarz"><Ellipse Width="14" Height="14" Fill="#111111"/></Button>
+                            <Button Focusable="False" Padding="5,3" Click="TextColor_Click" Tag="#1A3FA8" ToolTip="Blau"><Ellipse Width="14" Height="14" Fill="#1A3FA8"/></Button>
+                            <Button Focusable="False" Padding="5,3" Click="TextColor_Click" Tag="#C62828" ToolTip="Rot"><Ellipse Width="14" Height="14" Fill="#C62828"/></Button>
+                            <Button Focusable="False" Padding="5,3" Click="TextColor_Click" Tag="#2F7D32" ToolTip="Grün"><Ellipse Width="14" Height="14" Fill="#2F7D32"/></Button>
+                            <Button Focusable="False" Padding="7,3" Click="TextDelete_Click" ToolTip="Text löschen">
+                              <TextBlock Style="{StaticResource Ico}" Text="&#xE74D;" FontSize="12" Foreground="{DynamicResource Danger}"/>
+                            </Button>
+                          </StackPanel>
+                        </Border>
+                      </Grid>
+                      <DataTemplate.Triggers>
+                        <Trigger SourceName="Root" Property="IsMouseOver" Value="True">
+                          <Setter TargetName="TBox" Property="BorderBrush" Value="#55888888"/>
+                        </Trigger>
+                        <Trigger SourceName="Root" Property="IsKeyboardFocusWithin" Value="True">
+                          <Setter TargetName="Bar" Property="Visibility" Value="Visible"/>
+                          <Setter TargetName="TBox" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                        </Trigger>
+                      </DataTemplate.Triggers>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>

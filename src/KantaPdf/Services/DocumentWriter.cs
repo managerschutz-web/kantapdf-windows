@@ -44,6 +44,8 @@ namespace KantaPdf.Services
                                .Select(x => (x.NX, x.NY, x.Text, x.Author, x.Created)).ToList(),
                 Highlights = p.Highlights.Select(h => (h.Rects.Select(r => (r.NX, r.NY, r.NW, r.NH)).ToList(), h.Text, h.Author, h.Created, h.Color)).ToList(),
                 Extra = p.ExtraRotation,
+                Fields = p.Fields.Where(f => f.Changed).Select(f => (f.AnnotIndex, f.Kind, f.Value ?? "", f.IsChecked, f.OnName)).ToList(),
+                Texts = p.Texts.Where(t => !string.IsNullOrWhiteSpace(t.Text)).Select(t => (t.NX, t.NY, t.Text, t.FontPt, t.Color, t.Bold)).ToList(),
                 Placed = p.Placed.Select(x => (x.Png, x.NX, x.NY, x.NW, x.NH)).ToList()
             }).ToList();
 
@@ -58,6 +60,8 @@ namespace KantaPdf.Services
                     using (var outDoc = new PdfDocument())
                     {
                         outDoc.Info.Creator = "KANTApdf";
+                        PdfDictionary helv = null;
+                        var formPages = new List<PdfPage>();
                         foreach (var plan in plans)
                         {
                             PdfPage target;
@@ -93,6 +97,7 @@ namespace KantaPdf.Services
                                     opened[src] = srcDoc;
                                 }
                                 target = outDoc.AddPage(srcDoc.Pages[plan.Page.SourceIndex]);
+                                formPages.Add(target);
                                 rot = ((target.Elements.GetInteger("/Rotate") % 360) + 360) % 360;
                                 if (plan.Extra != 0)
                                 {
@@ -100,6 +105,31 @@ namespace KantaPdf.Services
                                     target.Elements.SetInteger("/Rotate", rot);
                                 }
                                 box = target.Elements.ContainsKey("/CropBox") ? target.CropBox : target.MediaBox;
+                            }
+
+                            // Formularfelder: Werte setzen + Erscheinungsbild erzeugen
+                            if (plan.Fields.Count > 0 && formPages.Contains(target))
+                            {
+                                helv ??= HelveticaFont(outDoc);
+                                ApplyFields(outDoc, target, plan.Fields, helv);
+                            }
+
+                            // Eingefügte Texte fest in den Seiteninhalt schreiben
+                            if (plan.Texts.Count > 0 && rot == 0)
+                            {
+                                var media = target.MediaBox;
+                                double mLeft = Math.Min(media.X1, media.X2), mTop = Math.Max(media.Y1, media.Y2);
+                                using var gfx = XGraphics.FromPdfPage(target, XGraphicsPdfPageOptions.Append);
+                                foreach (var t in plan.Texts)
+                                {
+                                    var pos = ToPdf(box, 0, t.NX, t.NY);
+                                    var font = new XFont("Arial", t.Pt, t.Bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
+                                    var brush = new XSolidBrush(XColor.FromArgb(t.Color.A, t.Color.R, t.Color.G, t.Color.B));
+                                    double x = pos.x - mLeft + 2.2, y = mTop - pos.y + 1.6, lh = t.Pt * 1.15;
+                                    var lines = t.Text.Replace("\r", "").Split('\n');
+                                    for (int li = 0; li < lines.Length; li++)
+                                        gfx.DrawString(lines[li], font, brush, x, y + li * lh, XStringFormats.TopLeft);
+                                }
                             }
 
                             // Unterschriften & Stempel fest in den Seiteninhalt zeichnen
@@ -123,6 +153,7 @@ namespace KantaPdf.Services
                             foreach (var h in plan.Highlights) AddHighlight(outDoc, target, box, rot, h.Item1, h.Item2, h.Item3, h.Item4, h.Item5);
                             foreach (var note in plan.Notes) AddNote(outDoc, target, box, rot, note.NX, note.NY, note.Text, note.Author, note.Created);
                         }
+                        BuildAcroForm(outDoc, formPages, helv);
                         outDoc.Save(temp);
                     }
                     File.Copy(temp, output, true);
@@ -142,6 +173,8 @@ namespace KantaPdf.Services
             public List<(double NX, double NY, string Text, string Author, DateTime Created)> Notes;
             public List<(List<(double, double, double, double)>, string, string, DateTime, Color)> Highlights;
             public int Extra;
+            public List<(int AnnotIndex, FieldKind Kind, string Value, bool Checked, string OnName)> Fields;
+            public List<(double NX, double NY, string Text, double Pt, Color Color, bool Bold)> Texts;
             public List<(byte[] Png, double NX, double NY, double NW, double NH)> Placed;
         }
 
@@ -230,6 +263,172 @@ namespace KantaPdf.Services
             form.CreateStream(Encoding.ASCII.GetBytes(content));
             doc.Internals.AddObject(form);
             return form;
+        }
+
+        // ───────────── Formularfelder ─────────────
+
+        private static PdfDictionary HelveticaFont(PdfDocument doc)
+        {
+            var f = new PdfDictionary(doc);
+            f.Elements["/Type"] = new PdfName("/Font");
+            f.Elements["/Subtype"] = new PdfName("/Type1");
+            f.Elements["/BaseFont"] = new PdfName("/Helvetica");
+            f.Elements["/Encoding"] = new PdfName("/WinAnsiEncoding");
+            doc.Internals.AddObject(f);
+            return f;
+        }
+
+        /// <summary>Text als PDF-String-Literal in WinAnsi (Umlaute, €) mit Escapes.</summary>
+        private static byte[] PdfLiteral(string text)
+        {
+            var bytes = new List<byte> { (byte)'(' };
+            foreach (var ch in text)
+            {
+                if (ch == '(' || ch == ')' || ch == '\\') { bytes.Add((byte)'\\'); bytes.Add((byte)ch); }
+                else if (ch == '€') bytes.Add(0x80);
+                else if (ch == '„') bytes.Add(0x84);
+                else if (ch == '“') bytes.Add(0x93);
+                else if (ch == '–') bytes.Add(0x96);
+                else if (ch < 256) bytes.Add((byte)ch);
+                else bytes.Add((byte)'?');
+            }
+            bytes.Add((byte)')');
+            return bytes.ToArray();
+        }
+
+        private static List<string> Wrap(string text, double fs, double width)
+        {
+            var result = new List<string>();
+            double cw = fs * 0.52;
+            int max = Math.Max(1, (int)(width / cw));
+            foreach (var para in text.Replace("\r", "").Split('\n'))
+            {
+                var line = "";
+                foreach (var word in para.Split(' '))
+                {
+                    var cand = line.Length == 0 ? word : line + " " + word;
+                    if (cand.Length > max && line.Length > 0) { result.Add(line); line = word; }
+                    else line = cand;
+                }
+                result.Add(line);
+            }
+            return result;
+        }
+
+        private static void ApplyFields(PdfDocument doc, PdfPage page, List<(int AnnotIndex, FieldKind Kind, string Value, bool Checked, string OnName)> fields, PdfDictionary helv)
+        {
+            var annots = FormReader.AnnotsOf(page);
+            if (annots == null) return;
+            foreach (var f in fields)
+            {
+                if (f.AnnotIndex < 0 || f.AnnotIndex >= annots.Elements.Count) continue;
+                if (!(FormReader.Resolve(annots.Elements[f.AnnotIndex]) is PdfDictionary w)) continue;
+                // Feld-Dictionary: das Widget selbst oder sein Elternteil (Wert steht beim Feld)
+                var field = w.Elements.ContainsKey("/T") ? w : (FormReader.ParentOf(w) ?? w);
+
+                switch (f.Kind)
+                {
+                    case FieldKind.Check:
+                    case FieldKind.Radio:
+                    {
+                        var state = f.Checked ? "/" + (f.OnName ?? "Yes") : "/Off";
+                        w.Elements["/AS"] = new PdfName(state);
+                        if (f.Kind == FieldKind.Check || f.Checked) field.Elements["/V"] = new PdfName(state);
+                        break;
+                    }
+                    default:
+                    {
+                        field.Elements["/V"] = new PdfString(f.Value, PdfStringEncoding.Unicode);
+                        TextAppearance(doc, w, f.Value, f.Kind == FieldKind.Multiline, helv);
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static void TextAppearance(PdfDocument doc, PdfDictionary w, string text, bool multiline, PdfDictionary helv)
+        {
+            var r = w.Elements.GetRectangle("/Rect");
+            double wd = Math.Abs(r.X2 - r.X1), ht = Math.Abs(r.Y2 - r.Y1);
+            if (wd <= 0 || ht <= 0) return;
+            double fs = multiline ? Math.Min(10, Math.Max(5, ht * 0.8)) : Math.Max(4, Math.Min(ht * 0.66, 12));
+
+            var ms = new MemoryStream();
+            void W(string s) { var b = Encoding.ASCII.GetBytes(s); ms.Write(b, 0, b.Length); }
+            W($"/Tx BMC q 1 1 {F(wd - 2)} {F(ht - 2)} re W n BT /Helv {F(fs)} Tf 0 g ");
+            if (multiline)
+            {
+                var lines = Wrap(text, fs, wd - 4);
+                W($"2 {F(ht - 2 - fs)} Td ");
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    if (i > 0) W($"0 {F(-fs * 1.15)} Td ");
+                    var lit = PdfLiteral(lines[i]); ms.Write(lit, 0, lit.Length); W(" Tj ");
+                }
+            }
+            else
+            {
+                W($"2 {F((ht - fs) / 2 + fs * 0.22)} Td ");
+                var lit = PdfLiteral(text.Replace("\r", "").Replace("\n", " ")); ms.Write(lit, 0, lit.Length); W(" Tj ");
+            }
+            W("ET Q EMC");
+
+            var fonts = new PdfDictionary(doc);
+            fonts.Elements["/Helv"] = helv.Reference;
+            var res = new PdfDictionary(doc);
+            res.Elements["/Font"] = fonts;
+
+            var form = new PdfDictionary(doc);
+            form.Elements["/Type"] = new PdfName("/XObject");
+            form.Elements["/Subtype"] = new PdfName("/Form");
+            form.Elements["/BBox"] = Numbers(doc, 0, 0, wd, ht);
+            form.Elements["/Resources"] = res;
+            form.CreateStream(ms.ToArray());
+            doc.Internals.AddObject(form);
+
+            var ap = new PdfDictionary(doc);
+            ap.Elements["/N"] = form.Reference;
+            w.Elements["/AP"] = ap;
+        }
+
+        /// <summary>Formular im neuen Dokument wieder als Formular anmelden (/AcroForm mit allen Feldern).</summary>
+        private static void BuildAcroForm(PdfDocument doc, List<PdfPage> pages, PdfDictionary helv)
+        {
+            var fieldsArr = new PdfArray(doc);
+            var seen = new HashSet<PdfObject>();
+            foreach (var page in pages)
+            {
+                var annots = FormReader.AnnotsOf(page);
+                if (annots == null) continue;
+                foreach (var item in annots.Elements)
+                {
+                    if (!(item is PdfReference r) || !(r.Value is PdfDictionary w)) continue;
+                    if (w.Elements.GetName("/Subtype") != "/Widget") continue;
+                    // oberstes Feld suchen
+                    PdfReference topRef = r;
+                    var cur = w;
+                    for (int i = 0; i < 12; i++)
+                    {
+                        if (!(cur.Elements["/Parent"] is PdfReference pr) || !(pr.Value is PdfDictionary pd)) break;
+                        topRef = pr; cur = pd;
+                    }
+                    if (seen.Add(topRef.Value)) fieldsArr.Elements.Add(topRef);
+                }
+            }
+            if (fieldsArr.Elements.Count == 0) return;
+
+            helv ??= HelveticaFont(doc);
+            var acro = new PdfDictionary(doc);
+            acro.Elements["/Fields"] = fieldsArr;
+            acro.Elements["/NeedAppearances"] = new PdfBoolean(true);
+            acro.Elements["/DA"] = new PdfString("/Helv 0 Tf 0 g");
+            var fonts = new PdfDictionary(doc);
+            fonts.Elements["/Helv"] = helv.Reference;
+            var dr = new PdfDictionary(doc);
+            dr.Elements["/Font"] = fonts;
+            acro.Elements["/DR"] = dr;
+            doc.Internals.AddObject(acro);
+            doc.Internals.Catalog.Elements["/AcroForm"] = acro.Reference;
         }
 
         // ───────────── Notiz (/Text) ─────────────
