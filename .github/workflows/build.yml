@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -22,3 +25,18 @@ jobs:
         with:
           name: KANTApdf
           path: out/KANTApdf.exe
+
+      # Direkter Download ohne Anmeldung:
+      # https://github.com/managerschutz-web/kantapdf-windows/releases/latest/download/KANTApdf.exe
+      - name: Als Release bereitstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: KANTApdf – Build ${{ github.run_number }}
+          make_latest: true
+          files: out/KANTApdf.exe
+          body: |
+            Direkt-Download der aktuellen KANTApdf.exe (Windows 10/11, 64 Bit, ohne .NET-Installation lauffähig).
+            Beim ersten Start warnt SmartScreen: „Weitere Informationen“ → „Trotzdem ausführen“.
+
+            Made with ♥ in Ummaschumm
